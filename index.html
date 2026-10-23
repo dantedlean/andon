@@ -264,6 +264,8 @@ body.tv main#view{padding-block:12px}
 .tvexit{position:fixed;right:calc(12px + env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:40;opacity:.35}
 .tvexit:hover,.tvexit:focus-visible{opacity:1}
 body{margin:0}
+[hidden]{display:none!important}
+img{max-width:100%}
 .userchip{display:flex;align-items:center;gap:8px;align-self:flex-end;font-size:.9rem;color:var(--muted)}
 .userchip b{color:var(--ink)}
 .login{max-width:440px;margin:32px auto}
@@ -1144,7 +1146,7 @@ async function registrarParada(cel, ini, fim, motivo, obs) {
 // ---------- renderização ----------
 function render() {
   document.body.classList.toggle('nologin', !S.perfil);
-  if (!S.perfil) { document.body.classList.remove('fit'); $('#view').innerHTML = vLogin(); return; }
+  if (!S.perfil) { document.body.classList.remove('fit'); $('#hdr-sub').textContent = 'Acesso restrito à equipe D-Lean'; $('#view').innerHTML = vLogin(); return; }
   if (S.view === 'usuarios' && !S.canEdit) S.view = 'programacao';
   const navV = S.view === 'pc' ? 'apontamento' : S.view;
   document.querySelectorAll('nav.tabs a').forEach((a) => a.setAttribute('aria-current', a.dataset.v === navV ? 'page' : 'false'));
