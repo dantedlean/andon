@@ -123,6 +123,8 @@ main#view{padding-block:20px 32px}
 .xl{display:flex}
 .xl span{flex:1;text-align:center;color:var(--muted);font-size:.85rem;min-width:0}
 .xl span.cur{color:var(--ink);font-weight:700}
+/* Rotulo inicio-fim no Monitor Geral (escopado) */
+.xl.xl-faixa span{font-size:clamp(8px,.62vw,11px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em;min-width:0}
 .lplot{position:relative;border-bottom:2px solid #C9D2DC;border-left:1px solid var(--line)}
 .lplot svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 .lplot .gl{position:absolute;left:0;right:0;border-top:1px dashed var(--line);font-size:.75rem;color:var(--faint)}
@@ -477,7 +479,7 @@ function chart(metas, real, frac, cur, espF, opts) {
   const xl = labels.map((l, i) => '<span class="' + (i === cur ? 'cur' : '') + '">' + esc(l) + (i === cur ? '▸' : '') + (opts.metaLbl ? '<br><small class="muted">meta ' + fmt(metas[i]) + '</small>' : '') + '</span>').join('');
   return '<div class="chart"><div class="plot" style="' + (opts.fill ? '' : 'height:' + (opts.h || 200) + 'px') + '"><div class="cols">' + cols + '</div>' +
     '<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="' + pts.join(' ') + '" fill="none" stroke="#141A22" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg></div>' +
-    '<div class="xl">' + xl + '</div></div>';
+    '<div class="xl' + (opts.xlClass ? ' ' + opts.xlClass : '') + '">' + xl + '</div></div>';
 }
 function lineChart(labels, series, h) {
   const n = labels.length; if (n < 2) return '';
@@ -551,7 +553,7 @@ function vGeral() {
       '<div class="cb">' + calls + par +
         '<div><div class="lbl">Realizado / meta do dia</div><div class="bignum num"><b>' + fmt(x.tot) + '</b><span>/ ' + fmt(x.metaDia) + '</span></div></div>' + progBar(x) +
         '<div class="duo"><div class="tile"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '">' + sgn(x.d) + '</span></div>' + hora + '</div>' +
-        '<div class="chartbox"><div class="lbl" style="margin-bottom:4px">Produção por hora</div>' + chart(x.metas, x.real, x.frac, x.cur, x.espF, { fill: true, valSize: 18 }) + '</div>' +
+        '<div class="chartbox"><div class="lbl" style="margin-bottom:4px">Produção por hora</div>' + chart(x.metas, x.real, x.frac, x.cur, x.espF, { fill: true, valSize: 18, labels: x.F.map((f) => f.ini + ' - ' + f.fim), xlClass: 'xl-faixa' }) + '</div>' +
         '<div class="prods">' + prods + '<span class="muted" style="font-size:.9rem">' + (lastPar ? 'Última parada ' + esc(lastPar.ini) + '–' + esc(lastPar.fim) + ' · ' + esc(lastPar.obs || lastPar.motivo) : 'Sem paradas registradas') + ' · ' + esc(x.c.operadores || '—') + ' oper. · ' + esc(x.c.postos || '—') + ' postos</span></div>' +
       '</div></section>';
   }).join('');
