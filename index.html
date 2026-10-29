@@ -274,29 +274,6 @@ img{max-width:100%}
 .err{color:var(--bad-ink);font-weight:600;min-height:1.2em;margin:0}
 details summary{cursor:pointer;font-weight:600;color:var(--brand);min-height:44px;display:flex;align-items:center}
 body.nologin .top nav,body.nologin .top-tools{display:none}
-
-/* ===== REDESIGN MONITOR GERAL (29/10) — cards empilhados + produtos a direita ===== */
-.mon-stack{overflow-y:auto;overflow-x:hidden}
-.mon-stack .cells{display:flex;flex-direction:column;gap:14px}
-.rg-cc{width:100%}
-.rg-cb{display:grid;grid-template-columns:minmax(210px,.8fr) minmax(0,1.55fr) minmax(270px,1.05fr);gap:18px;align-items:start}
-.rg-col{min-width:0;display:flex;flex-direction:column;gap:10px}
-.rg-duo{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.rg-hora{font-size:clamp(15px,1.6vh,21px);white-space:nowrap}
-.rg-plist{display:flex;flex-direction:column;gap:5px;max-height:210px;overflow-y:auto}
-.rg-plist .pn{font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rg-plist .pq{font-size:1rem}
-.rg-foottxt{font-size:.82rem;margin-top:6px;display:block;line-height:1.35}
-@media(max-width:1280px){.rg-cb{grid-template-columns:minmax(200px,.9fr) minmax(0,1.4fr)}.rg-cb>.rg-col:last-child{grid-column:1/-1}}
-@media(max-width:820px){.rg-cb{grid-template-columns:1fr}}
-/* Modo TV: mesmo layout empilhado, com rolagem */
-body.tv .mon-stack{overflow-y:auto}
-body.tv .mon-stack .cells{display:flex!important;flex-direction:column!important;grid-template-columns:none!important;grid-template-rows:none!important}
-body.tv .mon-stack .cc{min-height:0!important}
-body.tv .rg-plist{max-height:260px}
-/* Eixo X com intervalo completo (pagina Celula) */
-.xl.xl-faixa span{font-size:clamp(8px,.62vw,11px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em;min-width:0}
-.xl.xl-faixa span small{font-size:.9em}
 </style>
 </head>
 <body class="nologin">
@@ -500,7 +477,7 @@ function chart(metas, real, frac, cur, espF, opts) {
   const xl = labels.map((l, i) => '<span class="' + (i === cur ? 'cur' : '') + '">' + esc(l) + (i === cur ? '▸' : '') + (opts.metaLbl ? '<br><small class="muted">meta ' + fmt(metas[i]) + '</small>' : '') + '</span>').join('');
   return '<div class="chart"><div class="plot" style="' + (opts.fill ? '' : 'height:' + (opts.h || 200) + 'px') + '"><div class="cols">' + cols + '</div>' +
     '<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="' + pts.join(' ') + '" fill="none" stroke="#141A22" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg></div>' +
-    '<div class="xl' + (opts.xlClass ? ' ' + opts.xlClass : '') + '">' + xl + '</div></div>';
+    '<div class="xl">' + xl + '</div></div>';
 }
 function lineChart(labels, series, h) {
   const n = labels.length; if (n < 2) return '';
@@ -562,25 +539,24 @@ function vGeral() {
     const curReal = x.cur >= 0 ? x.real[x.cur] : 0;
     const curEsp = x.cur >= 0 ? Math.round(x.espF[x.cur]) : 0;
     const hst = curReal >= curEsp ? 'ok' : curReal >= curEsp * (1 - LIM) ? 'warn' : 'late';
-    const faixaAtual = (x.cur >= 0 && x.F && x.F[x.cur]) ? (x.F[x.cur].ini + ' - ' + x.F[x.cur].fim) : faseTxt(x);
+    const hora = x.cur >= 0
+      ? '<div class="tile"><span class="lbl">Hora atual · meta ' + fmt(curMeta) + '</span><span class="num"><span class="c-' + hst + '">' + fmt(curReal) + '</span> <small>/ ' + fmt(curEsp) + ' esp.</small></span></div>'
+      : '<div class="tile"><span class="lbl">Hora atual</span><span class="num" style="font-size:1.5rem;padding-top:8px">' + esc(faseTxt(x)) + '</span></div>';
     const calls = x.calls.map((k) => '<div class="call">' + ICON.stop + ' Chamado: ' + esc(k.area) + ' · desde ' + esc(k.hora || '') + '</div>').join('');
     const par = x.st === 'stop' ? '<div class="call">Parada desde ' + esc(x.parAt.ini) + ' · ' + esc(x.parAt.motivo) + '</div>' : '';
     const lastPar = x.paradasCel.filter((p) => p.fim).slice(-1)[0];
-    const prods = x.prods.map((p) => '<div class="prow"><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span class="pn">' + esc(p.nome) + '</span><span class="dest">' + esc(p.destino) + '</span><span class="pq">' + fmt(p.feito) + ' <span>/ ' + fmt(p.qtd) + '</span></span></div>').join('') || '<span class="muted">Sem produtos programados</span>';
-    return '<section class="cc rg-cc' + (x.st === 'stop' ? ' stop' : '') + '" aria-label="' + esc(x.c.nome) + '">' +
+    const prods = x.prods.slice(0, A.cells.length > 3 ? 1 : 2).map((p) => '<div class="prow"><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span class="pn">' + esc(p.nome) + '</span><span class="muted" style="font-size:.95rem">' + esc(p.janela) + '</span><span class="dest">' + esc(p.destino) + '</span><span class="pq">' + fmt(p.feito) + ' <span>/ ' + fmt(p.qtd) + '</span></span></div>').join('') || '<span class="muted">Sem produtos programados</span>';
+    return '<section class="cc' + (x.st === 'stop' ? ' stop' : '') + '" aria-label="' + esc(x.c.nome) + '">' +
       '<div class="band b-' + x.st + '"><span class="cn">' + esc(x.c.nome) + '</span><span class="sl">' + ICON[x.st] + LABEL[x.st] + '</span></div>' +
-      '<div class="cb rg-cb">' +
-        '<div class="rg-col">' + calls + par +
-          '<div><div class="lbl">Realizado / meta do dia</div><div class="bignum num"><b>' + fmt(x.tot) + '</b><span>/ ' + fmt(x.metaDia) + '</span></div></div>' + progBar(x) +
-          '<div class="rg-duo"><div class="tile"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '">' + sgn(x.d) + '</span></div>' +
-          '<div class="tile"><span class="lbl">Hora atual' + (curMeta ? ' · meta ' + fmt(curMeta) : '') + '</span><span class="num rg-hora">' + (x.cur >= 0 ? '<span class="c-' + hst + '">' + fmt(curReal) + '</span> <small>/ ' + fmt(curEsp) + ' esp.</small>' : esc(faixaAtual)) + '</span></div></div>' +
-        '</div>' +
-        '<div class="rg-col"><div class="lbl" style="margin-bottom:4px">Produção por hora</div>' + chart(x.metas, x.real, x.frac, x.cur, x.espF, { fill: true, valSize: 18 }) + '</div>' +
-        '<div class="rg-col"><div class="lbl" style="margin-bottom:6px">Produtos do dia</div><div class="rg-plist">' + prods + '</div>' +
-          '<span class="muted rg-foottxt">' + (lastPar ? 'Última parada ' + esc(lastPar.ini) + '–' + esc(lastPar.fim) + ' · ' + esc(lastPar.obs || lastPar.motivo) : 'Sem paradas registradas') + ' · ' + esc(x.c.operadores || '—') + ' oper. · ' + esc(x.c.postos || '—') + ' postos</span></div>' +
+      '<div class="cb">' + calls + par +
+        '<div><div class="lbl">Realizado / meta do dia</div><div class="bignum num"><b>' + fmt(x.tot) + '</b><span>/ ' + fmt(x.metaDia) + '</span></div></div>' + progBar(x) +
+        '<div class="duo"><div class="tile"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '">' + sgn(x.d) + '</span></div>' + hora + '</div>' +
+        '<div class="chartbox"><div class="lbl" style="margin-bottom:4px">Produção por hora</div>' + chart(x.metas, x.real, x.frac, x.cur, x.espF, { fill: true, valSize: 18 }) + '</div>' +
+        '<div class="prods">' + prods + '<span class="muted" style="font-size:.9rem">' + (lastPar ? 'Última parada ' + esc(lastPar.ini) + '–' + esc(lastPar.fim) + ' · ' + esc(lastPar.obs || lastPar.motivo) : 'Sem paradas registradas') + ' · ' + esc(x.c.operadores || '—') + ' oper. · ' + esc(x.c.postos || '—') + ' postos</span></div>' +
       '</div></section>';
   }).join('');
-  return '<div class="mon mon-stack">' + head + '<div class="cells">' + cards + '</div>' + legend() + '</div>';
+  const nC = A.cells.length, cols = nC <= 4 ? nC : Math.ceil(nC / 2), rows = Math.ceil(nC / cols);
+  return '<div class="mon" style="--cols:' + cols + ';--rows:' + rows + '">' + head + '<div class="cells">' + cards + '</div>' + legend() + '</div>';
 }
 function legend() {
   return '<div class="legend"><span><i class="sw" style="background:var(--ok);border-radius:50%"></i><b>No ritmo</b></span>' +
@@ -618,7 +594,7 @@ function vCelula() {
   const prods = x.prods.map((p) => '<div class="prow"><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span class="pn">' + esc(p.nome) + '</span><span class="dest">' + esc(p.destino) + '</span><span class="muted" style="font-size:.95rem">' + esc(p.janela) + '</span><span class="pq">' + fmt(p.feito) + ' <span>/ ' + fmt(p.qtd) + '</span></span></div>').join('') || '<span class="muted">Sem produtos programados</span>';
   const pars = x.paradasCel.length ? x.paradasCel.slice(-2).map((p) => '<div style="padding:6px 0;border-top:1px solid var(--line2)"><b>' + esc(p.ini) + '–' + esc(p.fim || 'agora') + '</b> · ' + parMin(p, A.now) + ' min<br><span class="muted">' + esc(p.motivo) + (p.obs ? ' · ' + esc(p.obs) : '') + '</span></div>').join('') : '<span class="muted">Nenhuma parada hoje</span>';
   return '<div class="mon">' + head + alerts + kp + '<div class="cgrid"><section class="panel"><div class="phead" style="margin-bottom:6px"><h2>Produção por hora</h2><span class="legend" style="margin:0"><span><i class="sw" style="background:var(--brand)"></i>na meta</span><span><i class="sw" style="background:var(--bad)"></i>abaixo</span><span><i class="ln"></i>meta</span></span></div>' +
-    chart(x.metas, x.real, x.frac, x.cur, x.espF, { fill: true, valSize: 30, metaLbl: true, labels: F.map((f) => f.ini + ' - ' + f.fim), xlClass: 'xl-faixa' }) + '</section>' +
+    chart(x.metas, x.real, x.frac, x.cur, x.espF, { fill: true, valSize: 30, metaLbl: true }) + '</section>' +
     '<div class="side"><section class="panel"><div class="lbl" style="margin-bottom:8px">Produtos do dia</div><div class="prods" style="border:0;padding:0">' + prods + '</div></section>' +
     '<section class="panel"><div class="lbl" style="margin-bottom:4px">Paradas</div>' + pars + '</section>' +
     '<section class="panel"><div class="lbl" style="margin-bottom:8px">Precisa de ajuda? Acione</div>' + helpGrid(x) + '</section></div></div></div>';
