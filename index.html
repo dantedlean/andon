@@ -131,6 +131,9 @@ main#view{padding-block:20px 32px}
 .xl span.cur{color:var(--ink);font-weight:700}
 /* Rotulo inicio-fim no Monitor Geral (escopado) */
 .xl.xl-faixa span{font-size:clamp(8px,.62vw,11px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em;min-width:0}
+/* 30/10 — Dante: faixas maiores na aba Celula (cgrid). Monitor Geral (.cells) mantem o tamanho atual;
+   nowrap+ellipsis impede invadir a faixa vizinha. */
+.cgrid .xl.xl-faixa span{font-size:clamp(11px,1vw,16px)}
 .lplot{position:relative;border-bottom:2px solid #C9D2DC;border-left:1px solid var(--line)}
 .lplot svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 .lplot .gl{position:absolute;left:0;right:0;border-top:1px dashed var(--line);font-size:.75rem;color:var(--faint)}
