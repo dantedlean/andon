@@ -195,6 +195,11 @@ body.fit main#view{flex:1;min-height:0;display:flex;flex-direction:column;overfl
 .mon .chead .st{font-size:clamp(28px,min(3.2vw,6vh),62px);padding-block:min(14px,1.2vh)}
 .mon .chead .ck .num{font-size:clamp(32px,min(3.6vw,6.5vh),70px)}
 body.tv .selcel{display:none}
+/* 30/10 — ajuste Dante: no modo TV o grafico da Celula esticava (fill) e ficava
+   muito alto. Mantem a MESMA proporcao do modo normal: limita a altura do plot
+   ao tamanho natural e deixa o painel rolar se faltar espaco. */
+body.tv .mon .cgrid > .panel:first-child .chartbox{flex:0 0 auto}
+body.tv .mon .plot{flex:0 0 auto;height:clamp(150px,26vh,260px)}
 @media (max-width:760px),(max-height:520px){
   body.fit{display:block;overflow:auto}
   body.fit main#view{display:block;overflow:visible}
@@ -611,7 +616,8 @@ function vCelula() {
   const prods = x.prods.map((p) => '<div class="prow"><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span class="pn">' + esc(p.nome) + '</span><span class="dest">' + esc(p.destino) + '</span><span class="muted" style="font-size:.95rem">' + esc(p.janela) + '</span><span class="pq">' + fmt(p.feito) + ' <span>/ ' + fmt(p.qtd) + '</span></span></div>').join('') || '<span class="muted">Sem produtos programados</span>';
   const pars = x.paradasCel.length ? x.paradasCel.slice(-2).map((p) => '<div style="padding:6px 0;border-top:1px solid var(--line2)"><b>' + esc(p.ini) + '–' + esc(p.fim || 'agora') + '</b> · ' + parMin(p, A.now) + ' min<br><span class="muted">' + esc(p.motivo) + (p.obs ? ' · ' + esc(p.obs) : '') + '</span></div>').join('') : '<span class="muted">Nenhuma parada hoje</span>';
   return '<div class="mon">' + head + alerts + kp + '<div class="cgrid"><section class="panel"><div class="phead" style="margin-bottom:6px"><h2>Produção por hora</h2><span class="legend" style="margin:0"><span><i class="sw" style="background:var(--brand)"></i>na meta</span><span><i class="sw" style="background:var(--bad)"></i>abaixo</span><span><i class="ln"></i>meta</span></span></div>' +
-    chart(x.metas, x.real, x.frac, x.cur, x.espF, { fill: true, valSize: 30, metaLbl: true }) + '</section>' +
+    chart(x.metas, x.real, x.frac, x.cur, x.espF, { fill: true, valSize: 30, metaLbl: true,
+      labels: x.F.map((f) => f.ini + ' - ' + f.fim), xlClass: 'xl-faixa' }) + '</section>' +
     '<div class="side"><section class="panel"><div class="lbl" style="margin-bottom:8px">Produtos do dia</div><div class="prods" style="border:0;padding:0">' + prods + '</div></section>' +
     '<section class="panel"><div class="lbl" style="margin-bottom:4px">Paradas</div>' + pars + '</section>' +
     '<section class="panel"><div class="lbl" style="margin-bottom:8px">Precisa de ajuda? Acione</div>' + helpGrid(x) + '</section></div></div></div>';
