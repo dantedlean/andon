@@ -702,7 +702,8 @@ function tuUpdate() {
 }
 function regRow(a, showFaixa) {
   const F = faixas();
-  return '<div class="reg' + (a.status === 'cancelado' ? ' x' : '') + '"><span>' + esc(showFaixa ? (F[a.faixa] ? short(F[a.faixa].ini) + '–' + short(F[a.faixa].fim) : '?') : celName(a.cel)) + '</span><span>' + esc(a.produto) + (a.operador ? ' · <span class="muted">' + esc(a.operador) + '</span>' : '') + '</span><b style="text-align:right">' + fmt(+a.qtd || 0) + '</b>' +
+  const usr = (S.nomePor && a.por) ? S.nomePor(a.por) : '';
+  return '<div class="reg' + (a.status === 'cancelado' ? ' x' : '') + '"><span>' + esc(showFaixa ? (F[a.faixa] ? short(F[a.faixa].ini) + '–' + short(F[a.faixa].fim) : '?') : celName(a.cel)) + '</span><span>' + esc(a.produto) + (a.operador ? ' · <span class="muted">' + esc(a.operador) + '</span>' : '') + (usr ? ' · <span class="muted" title="' + esc(usr) + '">👤 ' + esc(usr) + '</span>' : '') + '</span><b style="text-align:right">' + fmt(+a.qtd || 0) + '</b>' +
     (a.status === 'cancelado' ? '<span class="muted" style="font-size:.85rem">cancelado</span>' : '<button class="btn sm danger" type="button" data-cancel="' + esc(a.id) + '">Cancelar</button>') + '</div>';
 }
 
@@ -1419,6 +1420,11 @@ async function afterLogin(session) {
   S.session = session; S.uid = session.user.id;
   const { data: perfil } = await S.sb.from('perfis').select('*').eq('user_id', S.uid).maybeSingle();
   S.perfil = perfil || null; S.authLoading = false;
+  try { const { data: perfis } = await S.sb.from('perfis').select('user_id, nome, email');
+    S.perfisMap = {}; (perfis || []).forEach((u) => { S.perfisMap[u.user_id] = { nome: u.nome || '', email: u.email || '' }; });
+  } catch (e) { S.perfisMap = {}; }
+  const nomePor = (uid) => { const u = S.perfisMap && S.perfisMap[uid]; return u ? (u.nome || u.email) : ''; };
+  S.nomePor = nomePor;
   if (!perfil) { render(); return; }
   S.canEdit = perfil.papel === 'admin';
   $('#nav-users').hidden = !S.canEdit;
