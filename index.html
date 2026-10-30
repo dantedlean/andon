@@ -1057,7 +1057,9 @@ function vProg() {
     return '<div class="cellbox"><div class="phead" style="margin:0"><h2 style="font-size:1.1rem">' + esc(c.nome) + '</h2><span class="muted">meta do dia: <b style="color:var(--ink)" data-total="' + esc(c.id) + '">' + fmt(total) + '</b></span></div>' +
       (S.canEdit ? '<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap"><div class="field"><label for="mh-' + esc(c.id) + '">Preencher com meta/hora</label><input id="mh-' + esc(c.id) + '" class="inp" type="number" min="0" placeholder="ex.: 271"></div><button class="btn" type="button" data-fillmh="' + esc(c.id) + '">Aplicar (proporcional à duração)</button></div>' : '') +
       '<div class="metas">' + metas + '</div><span class="lbl">Produtos · “Pç/caixa” ativa os botões de caixa no PC da célula</span><div class="scroll"><div class="stack" style="gap:8px">' + (prods || '<span class="muted">Nenhum produto</span>') + '</div></div>' +
-      (S.canEdit ? '<button class="btn" type="button" data-ppadd="' + esc(c.id) + '" style="align-self:flex-start">+ Produto</button>' : '') + '</div>';
+      (S.canEdit ? '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;align-self:flex-start;margin-top:2px">' +
+        '<button class="btn" type="button" data-ppadd="' + esc(c.id) + '">+ Produto</button>' +
+        '<button class="btn pri" type="button" data-savecel="' + esc(c.id) + '">Salvar célula</button></div>' : '') + '</div>';
   }).join('');
   const hist = S.dias.filter((d) => d !== S.date).sort().reverse();
   const prevDay = hist.find((d) => d < S.date);
@@ -1083,7 +1085,7 @@ function newDraft(src) {
   });
   S.draft = { celulas, faixas: F, cells }; S.draftDirty = !!src; S.remoteChanged = false;
 }
-async function saveProg() {
+async function saveProg(celId) {
   const D = S.draft;
   const bad = D.faixas.find((f) => isNaN(toMin(f.ini)) || isNaN(toMin(f.fim)) || toMin(f.fim) <= toMin(f.ini));
   if (bad) return toast('Confira as faixas: cada uma precisa de início e fim, com o fim depois do início.');
@@ -1098,7 +1100,10 @@ async function saveProg() {
     await S.db.doc('config/celulas').set({ celulas: D.celulas.map((c) => ({ id: c.id, nome: String(c.nome || c.id).trim(), operadores: Math.max(0, +c.operadores || 0), postos: Math.max(0, +c.postos || 0) })) });
     await S.db.doc('dias/' + S.date).set({ data: S.date, faixas: faixasOrd, cells, atualizado: new Date().toISOString() });
     S.draftDirty = false; S.remoteChanged = false; S.draft = null;
-    toast('Programação salva');
+    if (celId) {
+      const cx = D.celulas.find((c) => c.id === celId) || {};
+      toast('Célula ' + (cx.nome || celId) + ' salva · inclui faixas e demais alterações do dia');
+    } else toast('Programação salva');
   } catch (e) { toast(errMsg(e)); }
 }
 
@@ -1262,6 +1267,12 @@ document.addEventListener('click', async (ev) => {
   const D = S.draft;
   const dirty = () => { S.draftDirty = true; };
   if (t.id === 'pg-save') return saveProg();
+  if (d.savecel) {
+    if (t.dataset.busy) return;
+    t.dataset.busy = '1'; t.disabled = true; const lbl = t.textContent; t.textContent = 'Salvando…';
+    try { return await saveProg(d.savecel); }
+    finally { t.dataset.busy = ''; t.disabled = false; if (t.isConnected) t.textContent = lbl; }
+  }
   if (t.id === 'pg-reload') { S.draft = null; S.draftDirty = false; render(); return; }
   if (t.id === 'pg-copy' || t.id === 'pg-copy-prev') {
     const from = t.id === 'pg-copy-prev' ? t.dataset.from : $('#pg-copyfrom').value;
