@@ -94,6 +94,12 @@ main#view{padding-block:20px 32px}
 .prog i{position:absolute;left:0;top:0;bottom:0;border-radius:7px}
 .prog em{position:absolute;top:-5px;bottom:-5px;width:4px;margin-left:-2px;background:var(--ink);border-radius:2px}
 .duo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.trio{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:stretch}
+.trio .trio-c1{min-width:0;display:flex;flex-direction:column;justify-content:center}
+.trio .bignum b{font-size:clamp(30px,calc(min(3.6vw / var(--cols) * 3, 7.4vh) / var(--rows)),88px)}
+.trio .bignum span{font-size:clamp(15px,calc(min(1.7vw / var(--cols) * 3, 3.5vh) / var(--rows)),42px)}
+.trio .num{font-size:clamp(24px,calc(min(2.6vw / var(--cols) * 3, 5.6vh) / var(--rows)),56px)}
+.plist{display:flex;flex-direction:column;gap:8px;min-height:0;overflow-y:auto;max-height:clamp(84px,17vh,240px)}
 .tile{display:flex;flex-direction:column;gap:2px;padding:10px 14px;background:var(--bg);border-radius:10px;min-width:0}
 .tile .num{font-size:clamp(40px,3.4vw,64px)}
 .tile small{font-size:.5em;color:var(--faint)}
@@ -547,14 +553,17 @@ function vGeral() {
     const calls = x.calls.map((k) => '<div class="call">' + ICON.stop + ' Chamado: ' + esc(k.area) + ' · desde ' + esc(k.hora || '') + '</div>').join('');
     const par = x.st === 'stop' ? '<div class="call">Parada desde ' + esc(x.parAt.ini) + ' · ' + esc(x.parAt.motivo) + '</div>' : '';
     const lastPar = x.paradasCel.filter((p) => p.fim).slice(-1)[0];
-    const prods = x.prods.slice(0, A.cells.length > 3 ? 1 : 2).map((p) => '<div class="prow"><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span class="pn">' + esc(p.nome) + '</span><span class="muted" style="font-size:.95rem">' + esc(p.janela) + '</span><span class="dest">' + esc(p.destino) + '</span><span class="pq">' + fmt(p.feito) + ' <span>/ ' + fmt(p.qtd) + '</span></span></div>').join('') || '<span class="muted">Sem produtos programados</span>';
+    const prods = x.prods.map((p) => '<div class="prow"><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span class="pn">' + esc(p.nome) + '</span><span class="muted" style="font-size:.95rem">' + esc(p.janela) + '</span><span class="dest">' + esc(p.destino) + '</span><span class="pq">' + fmt(p.feito) + ' <span>/ ' + fmt(p.qtd) + '</span></span></div>').join('') || '<span class="muted">Sem produtos programados</span>';
     return '<section class="cc' + (x.st === 'stop' ? ' stop' : '') + '" aria-label="' + esc(x.c.nome) + '">' +
       '<div class="band b-' + x.st + '"><span class="cn">' + esc(x.c.nome) + '</span><span class="sl">' + ICON[x.st] + LABEL[x.st] + '</span></div>' +
       '<div class="cb">' + calls + par +
-        '<div><div class="lbl">Realizado / meta do dia</div><div class="bignum num"><b>' + fmt(x.tot) + '</b><span>/ ' + fmt(x.metaDia) + '</span></div></div>' + progBar(x) +
-        '<div class="duo"><div class="tile"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '">' + sgn(x.d) + '</span></div>' + hora + '</div>' +
+        '<div class="trio">' +
+          '<div class="trio-c1"><div class="lbl">Realizado / meta do dia</div><div class="bignum num"><b>' + fmt(x.tot) + '</b><span>/ ' + fmt(x.metaDia) + '</span></div></div>' +
+          '<div class="tile"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '">' + sgn(x.d) + '</span></div>' +
+          hora +
+        '</div>' + progBar(x) +
         '<div class="chartbox"><div class="lbl" style="margin-bottom:4px">Produção por hora</div>' + chart(x.metas, x.real, x.frac, x.cur, x.espF, { fill: true, valSize: 18, labels: x.F.map((f) => f.ini + ' - ' + f.fim), xlClass: 'xl-faixa' }) + '</div>' +
-        '<div class="prods">' + prods + '<span class="muted" style="font-size:.9rem">' + (lastPar ? 'Última parada ' + esc(lastPar.ini) + '–' + esc(lastPar.fim) + ' · ' + esc(lastPar.obs || lastPar.motivo) : 'Sem paradas registradas') + ' · ' + esc(x.c.operadores || '—') + ' oper. · ' + esc(x.c.postos || '—') + ' postos</span></div>' +
+        '<div class="prods plist">' + prods + '<span class="muted" style="font-size:.9rem">' + (lastPar ? 'Última parada ' + esc(lastPar.ini) + '–' + esc(lastPar.fim) + ' · ' + esc(lastPar.obs || lastPar.motivo) : 'Sem paradas registradas') + ' · ' + esc(x.c.operadores || '—') + ' oper. · ' + esc(x.c.postos || '—') + ' postos</span></div>' +
       '</div></section>';
   }).join('');
   const nC = A.cells.length, cols = nC <= 4 ? nC : Math.ceil(nC / 2), rows = Math.ceil(nC / cols);
