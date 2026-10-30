@@ -169,12 +169,17 @@ body.fit main#view{flex:1;min-height:0;display:flex;flex-direction:column;overfl
 .mon .bignum b{font-size:clamp(34px,calc(min(5.6vw / var(--cols) * 3, 10vh) / var(--rows)),120px)}
 .mon .bignum span{font-size:clamp(18px,calc(min(2.4vw / var(--cols) * 3, 4.6vh) / var(--rows)),52px)}
 .mon .tile .num{font-size:clamp(26px,calc(min(3.2vw / var(--cols) * 3, 6vh) / var(--rows)),64px)}
-.mon .chartbox{flex:1;min-height:0;display:flex;flex-direction:column}
+.mon .chartbox{flex:1 1 0%;min-height:0;overflow:hidden;display:flex;flex-direction:column}
 .mon .chart{flex:1;min-height:0}
-.mon .plot{flex:1;min-height:40px}
-.mon .prods{flex-shrink:0;padding-top:min(10px,1vh);gap:min(8px,.8vh)}
+.mon .plot{flex:1 1 auto;min-height:0}
+.mon .prods{flex:0 1 auto;min-height:0;padding-top:min(10px,1vh);gap:min(8px,.8vh)}
+.mon .cb{overflow:hidden}
 .mon .prow .pn,.mon .prow .pq{font-size:clamp(16px,2.4vh,26px)}
-.mon .plist .prow .pn{font-size:.95rem}
+.mon .trio .num.fase{font-size:clamp(12px,2vh,24px);padding-top:6px;line-height:1.15;text-wrap:balance}
+.mon .plist{flex:0 1 auto;min-height:36px;max-height:clamp(40px,13vh,170px);overflow-y:auto;overflow-x:hidden}
+.mon .plist .prow{flex-wrap:nowrap;gap:8px;min-width:0}
+.mon .plist .prow .pn{font-size:.95rem;min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mon .plist .prow .pq,.mon .plist .prow .dest,.mon .plist .prow .muted{flex-shrink:0}
 .mon .legend{margin:0;flex-shrink:0;font-size:.9rem}
 .mon .chead{margin:0;flex-shrink:0}
 .mon .kpi4{margin:0;flex-shrink:0;gap:14px;grid-template-columns:1.5fr 1fr 1fr 1fr}
@@ -550,7 +555,7 @@ function vGeral() {
     const hst = curReal >= curEsp ? 'ok' : curReal >= curEsp * (1 - LIM) ? 'warn' : 'late';
     const hora = x.cur >= 0
       ? '<div class="tile"><span class="lbl">Hora atual · meta ' + fmt(curMeta) + '</span><span class="num"><span class="c-' + hst + '">' + fmt(curReal) + '</span> <small>/ ' + fmt(curEsp) + ' esp.</small></span></div>'
-      : '<div class="tile"><span class="lbl">Hora atual</span><span class="num" style="font-size:1.5rem;padding-top:8px">' + esc(faseTxt(x)) + '</span></div>';
+      : '<div class="tile"><span class="lbl">Hora atual</span><span class="num fase">' + esc(faseTxt(x)) + '</span></div>';
     const calls = x.calls.map((k) => '<div class="call">' + ICON.stop + ' Chamado: ' + esc(k.area) + ' · desde ' + esc(k.hora || '') + '</div>').join('');
     const par = x.st === 'stop' ? '<div class="call">Parada desde ' + esc(x.parAt.ini) + ' · ' + esc(x.parAt.motivo) + '</div>' : '';
     const lastPar = x.paradasCel.filter((p) => p.fim).slice(-1)[0];
