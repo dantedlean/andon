@@ -1253,8 +1253,8 @@ document.addEventListener('click', async (ev) => {
   if (t.id === 'pa-send') { if (await registrarParada($('#pa-cel').value, $('#pa-ini').value, $('#pa-fim').value, $('#pa-mot').value, $('#pa-obs').value.trim())) { $('#pa-obs').value = ''; $('#pa-fim').value = ''; } return; }
   // PC da célula
   if (d.pcfx != null) { S.pc.faixa = +d.pcfx; render(); return; }
-  if (d.pcprod != null) { S.pc.prod = d.pcprod; render(); if (d.pcprod === '__outro') { const o = $('#pc-outro'); if (o) o.focus(); } return; }
-  if (t.id === 'pc-send') { const q = Math.round(+S.pc.qtd); if (await pcLancar(q)) { S.pc.qtd = ''; const el = $('#pc-qty'); if (el) el.value = ''; } return; }
+  if (d.pcprod != null) { S.pc.prod = d.pcprod; render(); if (d.pcprod === '__outro') { const o = $('#pc-outro'); if (o) { o.focus(); try { o.select(); } catch (e) {} } } return; }
+  if (t.id === 'pc-send') { const q = Math.round(+S.pc.qtd); if (await pcLancar(q)) { S.pc.qtd = ''; const el = $('#pc-qty'); if (el) el.value = ''; if (S.pc.prod === '__outro') { S.pc.outro = ''; const oi = $('#pc-outro'); if (oi) oi.value = ''; } } return; }
   if (d.lote) {
     const c = cellsAtivas().find((k) => k.id === S.pcCel); if (!c) return;
     const p = calcCell(c, nowMin()).prods.find((k) => k.nome === S.pc.prodSel); if (!p || !p.cx) return;
