@@ -343,11 +343,11 @@ const isHE = (a) => !!a && +a.faixa < 0;
 const heJanela = (a) => { const m = /^HE\s*(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/.exec(String((a && a.operador) || '')); return m ? m[1] + '–' + m[2] : ''; };
 const heNome = (a) => String((a && a.operador) || '').replace(/^HE\s*\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\s*·?\s*/, '').trim();
 const heTag = (ini, fim, nome) => 'HE ' + ini + '-' + fim + (nome ? ' · ' + nome : '');
-// linha curta com o que ficou fora do cálculo (hora extra e produto fora da programação)
+// linha curta: detalha a produção que não estava programada (já somada no DIA REAL)
 const foraTxt = (x, size) => {
   const p = [];
   if (x.totExtra > 0) p.push('+' + fmt(x.totExtra) + ' em hora extra');
-  if (x.totFora > 0) p.push('+' + fmt(x.totFora) + ' fora da programação');
+  if (x.totFora > 0) p.push('+' + fmt(x.totFora) + ' de produto fora da programação');
   return p.length ? '<div class="muted" style="font-size:' + (size || '.8rem') + ';line-height:1.25">' + p.join(' · ') + '</div>' : '';
 };
 const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -430,20 +430,21 @@ function calcCell(c, now, ctx) {
   const metas = F.map((_, i) => Math.max(0, +((cp.metas || [])[i]) || 0));
   const real = F.map(() => 0);
   const ap = (ctx.apont || []).filter((a) => a.cel === c.id && a.status !== 'cancelado');
-  // 04/11 — só produção de produto PROGRAMADO entra em real, meta e %.
-  // O que foi lançado fora da programação (ou em hora extra) é mostrado à parte.
+  // 04/11 (3ª rodada, ordem Dante) — TODA a produção conta como produzida: o
+  // produto lançado fora da programação aparece no gráfico e no DIA REAL e é
+  // computado na meta. A meta continua sendo só a da programação; o que fica
+  // fora dela é apenas informado (+N fora da programação / +N em hora extra).
   const progNorm = new Set((cp.produtos || []).filter((p) => p && p.nome).map((p) => norm(p.nome)));
-  const apProg = ap.filter((a) => progNorm.has(norm(a.produto)));
-  const apFora = ap.filter((a) => !progNorm.has(norm(a.produto)));
-  apProg.forEach((a) => { if (!isHE(a) && a.faixa >= 0 && a.faixa < n) real[a.faixa] += (+a.qtd || 0); });
-  const totFora = apFora.filter((a) => !isHE(a)).reduce((s2, a) => s2 + (+a.qtd || 0), 0);
+  ap.forEach((a) => { if (!isHE(a) && a.faixa >= 0 && a.faixa < n) real[a.faixa] += (+a.qtd || 0); });
+  const totFora = ap.filter((a) => !isHE(a) && !progNorm.has(norm(a.produto))).reduce((s2, a) => s2 + (+a.qtd || 0), 0);
   const totExtra = ap.filter((a) => isHE(a)).reduce((s2, a) => s2 + (+a.qtd || 0), 0);
   const ini = F.map((f) => toMin(f.ini)), fim = F.map((f) => toMin(f.fim));
   const frac = F.map((_, i) => (now >= fim[i] ? 1 : now <= ini[i] ? 0 : (now - ini[i]) / (fim[i] - ini[i])));
   const espF = metas.map((m, i) => m * frac[i]);
   const esp = Math.round(espF.reduce((a, b) => a + b, 0));
   const metaDia = metas.reduce((a, b) => a + b, 0);
-  const tot = real.reduce((a, b) => a + b, 0);
+  const totFaixas = real.reduce((a, b) => a + b, 0);
+  const tot = totFaixas + totExtra;
   const cur = F.findIndex((_, i) => now >= ini[i] && now < fim[i]);
   const fase = now < ini[0] ? 'antes' : now >= fim[n - 1] ? 'fim' : cur >= 0 ? 'turno' : 'pausa';
   const d = tot - esp;
@@ -467,8 +468,10 @@ function calcCell(c, now, ctx) {
   let lastDone = -1; for (let i = n - 1; i >= 0; i--) if (frac[i] === 1) { lastDone = i; break; }
   const prods = (cp.produtos || []).filter((p) => p && p.nome).map((p) => {
     const apP = ap.filter((a) => norm(a.produto) === norm(p.nome));
-    const feito = apP.filter((a) => !isHE(a)).reduce((s2, a) => s2 + (+a.qtd || 0), 0);
+    // 3ª rodada: a hora extra é produção do produto e conta na meta dele;
+    // fica marcada ao lado ('+N HE') só para o leitor saber de onde veio.
     const feitoHE = apP.filter((a) => isHE(a)).reduce((s2, a) => s2 + (+a.qtd || 0), 0);
+    const feito = apP.reduce((s2, a) => s2 + (+a.qtd || 0), 0);
     const pi = toMin(p.ini), pf = toMin(p.fim), temJ = !isNaN(pi) && !isNaN(pf);
     let tag;
     if (feito >= (+p.qtd || 0) && (+p.qtd || 0) > 0) tag = 'done';
@@ -484,8 +487,8 @@ function calcCell(c, now, ctx) {
     const k = norm(a.produto); if (!k) return;
     if (prods.some((p) => norm(p.nome) === k)) return;
     const e = extras[k] || (extras[k] = { nome: a.produto, destino: a.destino || 'WARD', feito: 0, he: 0, ini: null, fim: null });
-    if (isHE(a)) { e.he += +a.qtd || 0; return; }
     e.feito += +a.qtd || 0;
+    if (isHE(a)) { e.he += +a.qtd || 0; return; }
     const f = F[a.faixa]; if (!f) return;
     if (!e.ini || toMin(f.ini) < toMin(e.ini)) e.ini = f.ini;
     if (!e.fim || toMin(f.fim) > toMin(e.fim)) e.fim = f.fim;
@@ -500,12 +503,12 @@ function calcCell(c, now, ctx) {
   const disp = progMin > 0 ? Math.max(0, 1 - perdas / progMin) : null;
   const ops = +c.operadores || 0;
   const prodHH = ops && progMin > 0 ? tot / (ops * progMin / 60) : null;
-  return { c, metas, real, espF, esp, metaDia, tot, totFora, totExtra, cur, fase, d, st, parAt, calls, proj, restMin, prods, faixasOk, faixasPass, perdas, paradasCel, frac, progMin, disp, prodHH, lastDone, F };
+  return { c, metas, real, espF, esp, metaDia, tot, totFaixas, totFora, totExtra, cur, fase, d, st, parAt, calls, proj, restMin, prods, faixasOk, faixasPass, perdas, paradasCel, frac, progMin, disp, prodHH, lastDone, F };
 }
 function calcAll() {
   const now = nowMin();
   const cells = cellsAtivas().map((c) => calcCell(c, now));
-  const t = cells.reduce((a, x) => ({ tot: a.tot + x.tot, meta: a.meta + x.metaDia, esp: a.esp + x.esp, fora: a.fora + (x.totFora || 0) + (x.totExtra || 0) }), { tot: 0, meta: 0, esp: 0, fora: 0 });
+  const t = cells.reduce((a, x) => ({ tot: a.tot + x.tot, meta: a.meta + x.metaDia, esp: a.esp + x.esp, fora: a.fora + (x.totFora || 0), extra: a.extra + (x.totExtra || 0) }), { tot: 0, meta: 0, esp: 0, fora: 0, extra: 0 });
   t.d = t.tot - t.esp;
   t.st = t.esp === 0 && t.tot === 0 ? 'wait' : t.d >= 0 ? 'ok' : t.d / t.esp >= -LIM ? 'warn' : 'late';
   const cont = { ok: 0, warn: 0, late: 0, stop: 0, wait: 0 };
@@ -812,21 +815,25 @@ function pcHist(x) {
       '<span class="r">' + (futura || !meta ? '—' : pct(real, meta) + '%') + '</span>';
   });
   rows.push('<span><b>TOTAL DO DIA</b></span><span class="r">' + fmt(x.metaDia) + '</span><span class="r muted">' + fmt(x.esp) + '</span><span class="r" style="font-weight:700">' + fmt(x.tot) + '</span><span class="r">' + (x.metaDia ? pct(x.tot, x.metaDia) + '%' : '—') + '</span>');
-  if (x.totExtra > 0 || x.totFora > 0) {
-    rows.push('<span colspan="5" class="muted" style="font-size:.85rem">Fora do cálculo: ' + [x.totExtra ? fmt(x.totExtra) + ' pç em hora extra' : '', x.totFora ? fmt(x.totFora) + ' pç fora da programação' : ''].filter(Boolean).join(' · ') + '</span>');
-  }
+  const notas = [];
+  if (x.totExtra > 0) notas.push(fmt(x.totExtra) + ' pç em hora extra (fora das faixas: ' + fmt(x.totFaixas) + ' nas faixas)');
+  if (x.totFora > 0) notas.push(fmt(x.totFora) + ' pç de produto fora da programação (já somadas acima)');
+  if (notas.length) rows.push('<span colspan="5" class="muted" style="font-size:.85rem">' + notas.join(' · ') + '</span>');
   const somaProg = x.prods.reduce((t, p) => t + (+p.qtd || 0), 0);
-  const realProg = x.prods.reduce((t, p) => t + (p.qtd ? (+p.feito || 0) : 0), 0);
-  const semMeta = x.tot - realProg;
+  // 3ª rodada: o realizado mostrado por produto inclui a hora extra, para a
+  // coluna fechar com o TOTAL DO DIA; o % continua só sobre o que tem meta.
+  const feitoProg = x.prods.filter((p) => p.qtd > 0).reduce((t, p) => t + (+p.feito || 0), 0);
+  const feitoTotal = x.prods.reduce((t, p) => t + (+p.feito || 0), 0);
+  const semMeta = feitoTotal - feitoProg;
   const pr = x.prods.map((p) => '<span><b>' + esc(p.nome) + '</b>' + (p.qtd ? '' : ' <span class="dest">sem meta</span>') + '</span>' +
     '<span class="muted" style="font-size:.9rem">' + esc(p.janela) + '</span>' +
     '<span class="r">' + (p.qtd ? fmt(p.qtd) : '—') + '</span>' +
     '<span class="r" style="font-weight:700">' + fmt(p.feito) + (p.feitoHE ? ' <span class="muted" style="font-size:.8em">+' + fmt(p.feitoHE) + ' HE</span>' : '') + '</span>' +
     '<span class="r">' + (p.qtd ? pct(p.feito, p.qtd) + '%' : '—') + '</span>');
-  pr.push('<span><b>TOTAL PROGRAMADO</b></span><span></span><span class="r">' + (somaProg ? fmt(somaProg) : '—') + '</span><span class="r" style="font-weight:700">' + fmt(realProg) + '</span><span class="r">' + (somaProg ? pct(realProg, somaProg) + '%' : '—') + '</span>');
+  pr.push('<span><b>TOTAL</b></span><span></span><span class="r">' + (somaProg ? fmt(somaProg) : '—') + '</span><span class="r" style="font-weight:700">' + fmt(feitoTotal) + '</span><span class="r">' + (somaProg ? pct(feitoProg, somaProg) + '%' : '—') + '</span>');
   return '<section class="panel"><div class="phead" style="margin-bottom:8px"><h2>Histórico das horas</h2><span class="muted">programado × realizado até agora</span></div>' +
     gt('1.15fr .75fr .95fr .95fr .7fr', 520, ['HORA', '>META', '>ATÉ AGORA', '>REALIZADO', '>% DA META'], rows, 'Sem faixas') + '</section>' +
-    '<section class="panel"><div class="phead" style="margin-bottom:8px"><h2>Total por produto</h2><span class="muted">' + (semMeta > 0 ? fmt(semMeta) + ' pç fora da meta (não entram no %)' : 'programado × realizado no dia') + '</span></div>' +
+    '<section class="panel"><div class="phead" style="margin-bottom:8px"><h2>Total por produto</h2><span class="muted">' + (semMeta > 0 ? fmt(semMeta) + ' pç sem meta (contam no DIA, não no %)' : 'programado × realizado no dia') + '</span></div>' +
     gt('1.7fr .75fr .75fr .8fr .65fr', 520, ['PRODUTO', 'JANELA', '>PROGRAMADO', '>REALIZADO', '>%'], pr, 'Sem produtos') + '</section>';
 }
 function pcSide() {
@@ -882,7 +889,7 @@ function prodStats(ctxs, celFilter, prodFilter) {
       P[k] = P[k] || { nome: a.produto, total: 0, prog: 0, he: 0, fora: 0, cels: new Set(), dias: new Set(), destino: a.destino || 'WARD', rates: [] };
       if (isHE(a)) { P[k].he = (P[k].he || 0) + (+a.qtd || 0); P[k].cels.add(a.cel); return; }
       const progCel = ((ctx.prog && ctx.prog.cells) || {})[a.cel] || {};
-      if (!(progCel.produtos || []).some((p) => norm(p.nome) === k)) { P[k].fora = (P[k].fora || 0) + (+a.qtd || 0); P[k].cels.add(a.cel); return; }
+      if (!(progCel.produtos || []).some((p) => norm(p.nome) === k)) P[k].fora = (P[k].fora || 0) + (+a.qtd || 0);
       P[k].total += +a.qtd || 0; P[k].cels.add(a.cel); P[k].dias.add(date);
       const g = date + '|' + a.cel + '|' + a.faixa + '|' + k; grp[g] = (grp[g] || 0) + (+a.qtd || 0);
     });
@@ -949,7 +956,7 @@ function gTurno() {
   const cs = chamStats([{ ctx: live() }]);
   const tResp = avg(cs.flatMap((a) => a.tempos));
   const kpis = [
-    kpiBox('Realizado / meta do dia', fmt(A.t.tot) + ' / ' + fmt(A.t.meta), pct(A.t.tot, A.t.meta) + '% · ' + A.cells.length + ' células' + (A.t.fora ? ' · +' + fmt(A.t.fora) + ' fora da programação' : '')),
+    kpiBox('Realizado / meta do dia', fmt(A.t.tot) + ' / ' + fmt(A.t.meta), pct(A.t.tot, A.t.meta) + '% · ' + A.cells.length + ' células' + (A.t.fora ? ' · +' + fmt(A.t.fora) + ' fora da programação' : '') + (A.t.extra ? ' · +' + fmt(A.t.extra) + ' HE' : '')),
     kpiBox('Vs. esperado agora', sgn(A.t.d), 'esperado ' + fmt(A.t.esp) + ' un', A.t.d >= 0 ? 'var(--ok)' : 'var(--bad-ink)'),
     kpiBox('Aderência à meta hora', pass ? pct(hit, pass) + '%' : '—', hit + ' de ' + pass + ' faixas célula × hora', 'var(--brand)'),
     kpiBox('Disponibilidade', progMin ? pct(progMin - perdas, progMin) + '%' : '—', fmt(perdas) + ' min parados de ' + fmt(progMin), perdas / (progMin || 1) > 0.1 ? 'var(--warn-ink)' : 'var(--ok)'),
@@ -974,11 +981,11 @@ function gTurno() {
     '<div class="cellbox"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="font-size:1.1rem">' + esc(x.c.nome) + '</b><span class="pill p-' + x.st + '">' + PILL[x.st] + '</span></div>' +
     '<div class="muted">' + fmt(x.tot) + ' de ' + fmt(x.metaDia) + ' · <span class="c-' + x.st + '">' + sgn(x.d) + '</span> · perdas ' + fmt(x.perdas) + ' min</div>' +
     chart(x.metas, x.real, x.frac, x.cur, x.espF, { h: 120, valSize: 12 }) +
-    '<div class="stack" style="gap:8px">' + (x.prods.map((p) => '<div><div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b>' + esc(p.nome) + '</b><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span style="margin-left:auto;font-weight:600">' + fmt(p.feito) + (p.qtd ? ' / ' + fmt(p.qtd) : '') + (p.feitoHE > 0 ? ' <span class="muted" style="font-size:.8em">+' + fmt(p.feitoHE) + ' HE</span>' : '') + '</span></div>' + (p.qtd ? miniBar(p.feito, p.qtd, p.tag === 'done' ? '--ok' : '--brand') : '<div class="muted" style="font-size:.85rem">lançado fora da programação · sem meta</div>') + '</div>').join('') || '<span class="muted">Sem produtos</span>') + '</div></div>').join('') + '</div></section>';
+    '<div class="stack" style="gap:8px">' + (x.prods.map((p) => '<div><div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b>' + esc(p.nome) + '</b><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span style="margin-left:auto;font-weight:600">' + fmt(p.feito) + (p.qtd ? ' / ' + fmt(p.qtd) : '') + (p.feitoHE > 0 ? ' <span class="muted" style="font-size:.8em">+' + fmt(p.feitoHE) + ' HE</span>' : '') + '</span></div>' + (p.qtd ? miniBar(p.feito, p.qtd, p.tag === 'done' ? '--ok' : '--brand') : '<div class="muted" style="font-size:.85rem">fora da programação · sem meta · somado no DIA</div>') + '</div>').join('') || '<span class="muted">Sem produtos</span>') + '</div></div>').join('') + '</div></section>';
   // por produto
   const ps = prodStats([{ date: S.date, ctx: live() }]);
   const tProd = '<section class="panel"><div class="phead"><h2>Por produto</h2><span class="muted">programado × realizado no dia</span></div>' + gt('1.3fr .7fr 1.6fr .9fr .9fr 1.2fr .8fr', 920, ['PRODUTO', 'DESTINO', 'CÉLULAS', '>PROGRAMADO', '>REALIZADO', 'ATENDIMENTO', '>RITMO MÉDIO/H'],
-    ps.P.map((p) => '<b>' + esc(p.nome) + '</b><span><span class="dest">' + esc(p.destino) + '</span></span><span class="muted">' + [...p.cels].map((c) => esc(celName(c))).join(', ') + '</span><span class="r">' + fmt(p.prog) + '</span><span class="r" style="font-weight:700">' + fmt(p.total) + '</span><div><span class="muted">' + (p.prog ? pct(p.total, p.prog) + '%</span>' + miniBar(p.total, p.prog, p.total >= p.prog ? '--ok' : '--brand') : 'sem meta</span>') + '</div><span class="r">' + (p.rates.length ? fmt(avg(p.rates)) : '—') + '</span>'), 'Sem produtos') + '</section>';
+    ps.P.map((p) => '<b>' + esc(p.nome) + '</b><span><span class="dest">' + esc(p.destino) + '</span></span><span class="muted">' + [...p.cels].map((c) => esc(celName(c))).join(', ') + '</span><span class="r">' + fmt(p.prog) + '</span><span class="r" style="font-weight:700">' + fmt(p.total) + '</span><div><span class="muted">' + (p.prog ? pct(p.total, p.prog) + '%</span>' + miniBar(p.total, p.prog, p.total >= p.prog ? '--ok' : '--brand') : 'sem meta' + (p.fora ? ' · ' + fmt(p.fora) + ' pç fora' : '') + '</span>') + '</div><span class="r">' + (p.rates.length ? fmt(avg(p.rates)) : '—') + '</span>'), 'Sem produtos') + '</section>';
   // faixa table
   let acc = 0, macc = 0;
   const rowsF = F.map((f, i) => {
@@ -988,7 +995,7 @@ function gTurno() {
     S.apont.filter((a) => a.faixa === i && a.status !== 'cancelado').forEach((a) => { prods[a.produto] = (prods[a.produto] || 0) + (+a.qtd || 0); });
     return '<b>' + esc(f.ini) + '–' + esc(f.fim) + (i === cur ? ' ▸' : '') + '</b><span class="r" style="font-weight:600">' + fmt(totR[i]) + '</span><span class="r muted">' + fmt(totM[i]) + '</span><span class="r">' + fmt(acc) + '</span><span class="r muted">' + fmt(macc) + '</span><span class="r c-' + (acc - macc >= 0 ? 'ok' : 'late') + '" style="font-weight:700">' + sgn(acc - macc) + '</span><span class="muted">' + Object.entries(prods).map(([k, v]) => esc(k) + ' ×' + fmt(v)).join(' · ') + '</span>';
   }).filter(Boolean);
-  const tFaixa = '<section class="panel"><div class="phead"><h2>Hora a hora · fábrica</h2></div>' + gt('1.1fr .8fr .7fr .9fr .9fr .9fr 2.6fr', 900, ['FAIXA', '>PRODUZIDO', '>META', '>ACUMULADO', '>ESPERADO ACUM.', '>DIFERENÇA', 'PRODUTOS'], rowsF, 'Turno ainda não começou') + '</section>';
+  const tFaixa = '<section class="panel"><div class="phead"><h2>Hora a hora · fábrica</h2>' + (A.t.extra ? '<span class="muted">+ ' + fmt(A.t.extra) + ' pç em hora extra, fora das faixas</span>' : '') + '</div>' + gt('1.1fr .8fr .7fr .9fr .9fr .9fr 2.6fr', 900, ['FAIXA', '>PRODUZIDO', '>META', '>ACUMULADO', '>ESPERADO ACUM.', '>DIFERENÇA', 'PRODUTOS'], rowsF, 'Turno ainda não começou') + '</section>';
   // ações
   const colsA = '1.2fr .9fr 1.3fr .5fr 1.6fr 1.2fr 1.1fr';
   const rowsA = S.paradas.map((p) => '<b>' + esc(celName(p.cel)) + '</b><span>' + esc(p.ini) + '–' + esc(p.fim || 'agora') + '</span><span>' + esc(p.motivo) + '</span><span class="r">' + parMin(p, A.now) + '</span><span>' + esc(p.obs || '—') + '</span>' +
@@ -1092,7 +1099,7 @@ function gPeriodo() {
   const tCel = '<section class="panel"><div class="phead"><h2>Por célula · período</h2></div>' + gt('1.4fr 1.5fr .7fr .8fr .8fr .8fr .8fr .8fr', 1000, ['CÉLULA', 'REALIZADO / META', '>% META', '>DIAS NA META', '>FAIXAS NA META', '>DISPONIB.', '>PÇ/OPER-H', '>PERDAS'],
     D.cells.map((c) => '<b>' + esc(c.nome) + '</b><div><span style="font-weight:600">' + fmt(c.tot) + ' / ' + fmt(c.meta) + '</span>' + miniBar(c.tot, c.meta, c.tot >= c.meta ? '--ok' : '--brand') + '</div><span class="r ' + (pct(c.tot, c.meta) >= 100 ? 'c-ok' : 'c-late') + '" style="font-weight:700">' + pct(c.tot, c.meta) + '%</span><span class="r">' + c.diasMeta + ' de ' + c.dias + '</span><span class="r">' + (c.pass ? pct(c.ok, c.pass) + '%' : '—') + '</span><span class="r">' + (c.progMin ? pct(c.progMin - c.perdas, c.progMin) + '%' : '—') + '</span><span class="r">' + (c.opH ? fmt1(c.tot / c.opH) : '—') + '</span><span class="r">' + fmt(c.perdas) + ' min</span>')) + '</section>';
   const tProd = '<section class="panel"><div class="phead"><h2>Por produto · período</h2><span class="muted">' + (S.g.cel ? 'célula ' + esc(celName(S.g.cel)) : 'todas as células') + '</span></div>' + gt('1.3fr .7fr 1.5fr .6fr .9fr .9fr 1.2fr .8fr .8fr', 1100, ['PRODUTO', 'DESTINO', 'CÉLULAS', '>DIAS', '>PROGRAMADO', '>REALIZADO', 'ATENDIMENTO', '>MÉDIA/H', '>MELHOR/H'],
-    D.ps.P.map((p) => '<b>' + esc(p.nome) + '</b><span><span class="dest">' + esc(p.destino) + '</span></span><span class="muted">' + [...p.cels].map((c) => esc(celName(c))).join(', ') + '</span><span class="r">' + p.dias.size + '</span><span class="r">' + fmt(p.prog) + '</span><span class="r" style="font-weight:700">' + fmt(p.total) + '</span><div><span class="muted">' + (p.prog ? pct(p.total, p.prog) + '%</span>' + miniBar(p.total, p.prog, p.total >= p.prog ? '--ok' : '--brand') : 'sem meta</span>') + '</div><span class="r">' + (p.rates.length ? fmt(avg(p.rates)) : '—') + '</span><span class="r muted">' + (p.rates.length ? fmt(Math.max(...p.rates)) : '—') + '</span>'), 'Sem produtos no período') + '</section>';
+    D.ps.P.map((p) => '<b>' + esc(p.nome) + '</b><span><span class="dest">' + esc(p.destino) + '</span></span><span class="muted">' + [...p.cels].map((c) => esc(celName(c))).join(', ') + '</span><span class="r">' + p.dias.size + '</span><span class="r">' + fmt(p.prog) + '</span><span class="r" style="font-weight:700">' + fmt(p.total) + '</span><div><span class="muted">' + (p.prog ? pct(p.total, p.prog) + '%</span>' + miniBar(p.total, p.prog, p.total >= p.prog ? '--ok' : '--brand') : 'sem meta' + (p.fora ? ' · ' + fmt(p.fora) + ' pç fora' : '') + '</span>') + '</div><span class="r">' + (p.rates.length ? fmt(avg(p.rates)) : '—') + '</span><span class="r muted">' + (p.rates.length ? fmt(Math.max(...p.rates)) : '—') + '</span>'), 'Sem produtos no período') + '</section>';
   return '<div class="stack">' + filters + '<div class="kpis">' + kpis + '</div>' + daily + tCel + tProd +
     '<section class="panel"><div class="phead"><h2>Capacidade histórica</h2><span class="muted">referência para a próxima programação · o PCP revisa e aprova</span></div>' + capTable(D.ps.CP) + '</section>' +
     '<div class="two">' + perdasBlock(D.allPar, D.cells.map((c) => ({ nome: c.nome, perdas: c.perdas })), Infinity) + '<section class="panel"><div class="phead"><h2>Tempo de resposta aos chamados</h2></div>' + chamTable(cs) + '</section></div></div>';
