@@ -112,6 +112,7 @@ main#view{padding-block:20px 32px}
 .tag{font-size:.72rem;font-weight:700;letter-spacing:.06em;padding:3px 8px;border-radius:4px;white-space:nowrap}
 .t-run{background:var(--brand);color:#fff} .t-done{background:var(--ok-soft);color:var(--ok)}
 .t-next{background:var(--line2);color:var(--muted)} .t-pend{background:var(--warn-soft);color:var(--warn-ink)}
+.t-extra{background:var(--warn-soft);color:var(--warn-ink);border:1px dashed #F0C877}
 .dest{font-size:.72rem;font-weight:700;padding:2px 7px;border-radius:4px;background:var(--brand-soft);color:var(--brand)}
 .legend{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:16px;font-size:.95rem;color:var(--muted)}
 .legend span{display:inline-flex;align-items:center;gap:6px}
@@ -455,6 +456,22 @@ function calcCell(c, now, ctx) {
     else tag = 'pend';
     return { nome: p.nome, destino: p.destino || 'WARD', qtd: +p.qtd || 0, cx: +p.cx || 0, ini: p.ini, fim: p.fim, feito, janela: temJ ? short(p.ini) + '–' + short(p.fim) + 'h' : 'dia todo', tag };
   });
+  // 04/11 — lançamento de produto que não está na programação do dia (avulso):
+  // aparece como linha própria, sem meta e sem %, para não sumir do Andon.
+  const extras = {};
+  ap.forEach((a) => {
+    const k = norm(a.produto); if (!k) return;
+    if (prods.some((p) => norm(p.nome) === k)) return;
+    const e = extras[k] || (extras[k] = { nome: a.produto, destino: a.destino || 'WARD', feito: 0, ini: null, fim: null });
+    e.feito += +a.qtd || 0;
+    const f = F[a.faixa]; if (!f) return;
+    if (!e.ini || toMin(f.ini) < toMin(e.ini)) e.ini = f.ini;
+    if (!e.fim || toMin(f.fim) > toMin(e.fim)) e.fim = f.fim;
+  });
+  Object.values(extras).forEach((e) => {
+    prods.push({ nome: e.nome, destino: e.destino, qtd: 0, cx: 0, ini: e.ini || undefined, fim: e.fim || undefined, feito: e.feito, extra: true, tag: 'extra',
+      janela: e.ini ? short(e.ini) + '–' + short(e.fim) + 'h' : 'dia todo' });
+  });
   const faixasOk = real.filter((v, i) => frac[i] > 0 && espF[i] > 0 && v >= espF[i] * (1 - LIM)).length;
   const faixasPass = frac.filter((f, i) => f > 0 && metas[i] > 0).length;
   const perdas = paradasCel.reduce((s, p) => s + parMin(p, now), 0);
@@ -516,8 +533,8 @@ const progBar = (x) => {
   return '<div class="prog"><i style="width:' + w.toFixed(1) + '%;background:var(' + col + ')"></i><em style="left:' + m.toFixed(1) + '%"></em></div>';
 };
 const miniBar = (a, b, color) => '<div style="height:8px;background:var(--track);border-radius:4px;margin-top:5px"><div style="height:100%;border-radius:4px;width:' + (b ? Math.min(100, (a / b) * 100) : 0).toFixed(1) + '%;background:var(' + (color || '--brand') + ')"></div></div>';
-const tagTxt = { run: 'EM PRODUÇÃO', done: 'CONCLUÍDO', next: 'PROGRAMADO', pend: 'PENDENTE' };
-const tagCls = { run: 't-run', done: 't-done', next: 't-next', pend: 't-pend' };
+const tagTxt = { run: 'EM PRODUÇÃO', done: 'CONCLUÍDO', next: 'PROGRAMADO', pend: 'PENDENTE', extra: 'SEM META' };
+const tagCls = { run: 't-run', done: 't-done', next: 't-next', pend: 't-pend', extra: 't-extra' };
 function faseTxt(x) {
   if (x.fase === 'antes') return 'Turno ainda não começou';
   if (x.fase === 'fim') return 'Turno encerrado';
@@ -562,7 +579,7 @@ function vGeral() {
     const calls = x.calls.map((k) => '<div class="call">' + ICON.stop + ' Chamado: ' + esc(k.area) + ' · desde ' + esc(k.hora || '') + '</div>').join('');
     const par = x.st === 'stop' ? '<div class="call">Parada desde ' + esc(x.parAt.ini) + ' · ' + esc(x.parAt.motivo) + '</div>' : '';
     const lastPar = x.paradasCel.filter((p) => p.fim).slice(-1)[0];
-    const prods = x.prods.map((p) => '<div class="prow"><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span class="pn">' + esc(p.nome) + '</span><span class="muted" style="font-size:.95rem">' + esc(p.janela) + '</span><span class="dest">' + esc(p.destino) + '</span><span class="pq">' + fmt(p.feito) + ' <span>/ ' + fmt(p.qtd) + '</span></span></div>').join('') || '<span class="muted">Sem produtos programados</span>';
+    const prods = x.prods.map((p) => '<div class="prow"><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span class="pn">' + esc(p.nome) + '</span><span class="muted" style="font-size:.95rem">' + esc(p.janela) + '</span><span class="dest">' + esc(p.destino) + '</span><span class="pq">' + fmt(p.feito) + (p.qtd > 0 ? ' <span>/ ' + fmt(p.qtd) + '</span>' : ' <span>sem meta</span>') + '</span></div>').join('') || '<span class="muted">Sem produtos programados</span>';
     return '<section class="cc' + (x.st === 'stop' ? ' stop' : '') + '" aria-label="' + esc(x.c.nome) + '">' +
       '<div class="band b-' + x.st + '"><span class="cn">' + esc(x.c.nome) + '</span><span class="sl">' + ICON[x.st] + LABEL[x.st] + '</span></div>' +
       '<div class="cb">' + calls + par +
@@ -611,7 +628,7 @@ function vCelula() {
       ? '<div class="kp"><span class="lbl">Hora atual · ' + esc(F[x.cur].ini) + '–' + esc(F[x.cur].fim) + '</span><span class="num"><span class="c-' + hst + '">' + fmt(curReal) + '</span> <small>/ ' + fmt(curMeta) + '</small></span><span class="muted">esperado até agora: ' + fmt(curEsp) + '</span></div>'
       : '<div class="kp"><span class="lbl">Hora atual</span><span class="num" style="font-size:2.2rem">' + esc(faseTxt(x)) + '</span><span class="muted">&nbsp;</span></div>') +
     '<div class="kp"><span class="lbl">' + (x.fase === 'fim' ? 'Fechamento do turno' : 'Projeção fim do turno') + '</span><span class="num">' + fmt(x.proj) + '</span><span class="muted">' + pct(x.proj, x.metaDia) + '% da meta' + (x.fase !== 'fim' && faltam ? ' · faltam ' + fmt(faltam) + ' em ' + x.restMin + ' min' : '') + '</span></div></div>';
-  const prods = x.prods.map((p) => '<div class="prow"><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span class="pn">' + esc(p.nome) + '</span><span class="dest">' + esc(p.destino) + '</span><span class="muted" style="font-size:.95rem">' + esc(p.janela) + '</span><span class="pq">' + fmt(p.feito) + ' <span>/ ' + fmt(p.qtd) + '</span></span></div>').join('') || '<span class="muted">Sem produtos programados</span>';
+  const prods = x.prods.map((p) => '<div class="prow"><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span class="pn">' + esc(p.nome) + '</span><span class="dest">' + esc(p.destino) + '</span><span class="muted" style="font-size:.95rem">' + esc(p.janela) + '</span><span class="pq">' + fmt(p.feito) + (p.qtd > 0 ? ' <span>/ ' + fmt(p.qtd) + '</span>' : ' <span>sem meta</span>') + '</span></div>').join('') || '<span class="muted">Sem produtos programados</span>';
   const pars = x.paradasCel.length ? x.paradasCel.slice(-2).map((p) => '<div style="padding:6px 0;border-top:1px solid var(--line2)"><b>' + esc(p.ini) + '–' + esc(p.fim || 'agora') + '</b> · ' + parMin(p, A.now) + ' min<br><span class="muted">' + esc(p.motivo) + (p.obs ? ' · ' + esc(p.obs) : '') + '</span></div>').join('') : '<span class="muted">Nenhuma parada hoje</span>';
   return '<div class="mon">' + head + alerts + kp + '<div class="cgrid"><section class="panel"><div class="phead" style="margin-bottom:6px"><h2>Produção por hora</h2><span class="legend" style="margin:0"><span><i class="sw" style="background:var(--brand)"></i>na meta</span><span><i class="sw" style="background:var(--bad)"></i>abaixo</span><span><i class="ln"></i>meta</span></span></div>' +
     chart(x.metas, x.real, x.frac, x.cur, x.espF, { fill: true, valSize: 30, metaLbl: true,
@@ -727,7 +744,7 @@ function vPC() {
   return '<div class="stack" style="gap:16px">' +
     '<div class="chead" style="margin:0"><div class="nm"><span class="num">' + esc(c.nome.toUpperCase()) + '</span><span class="muted">PC da célula · apontamento</span></div><div class="ck"><span class="num">' + esc(clockTxt()) + '</span><span class="muted">' + esc(dateLabel(S.date)) + '</span></div></div>' +
     '<div id="pc-pend"></div>' +
-    '<div class="ap"><section class="panel stack" style="gap:18px">' +
+    '<div class="ap"><div class="stack" style="gap:16px"><section class="panel stack" style="gap:18px">' +
       '<div class="stack" style="gap:8px"><span class="lbl">Faixa horária</span><div class="seg">' + F.map((g, k) => '<button type="button" data-pcfx="' + k + '" aria-pressed="' + (k === fi) + '">' + esc(short(g.ini)) + '–' + esc(short(g.fim)) + '</button>').join('') + '</div></div>' +
       '<div class="stack" style="gap:8px"><span class="lbl">Produto</span><div class="seg big">' + prods.map((p) => '<button type="button" data-pcprod="' + esc(p.nome) + '" aria-pressed="' + (p.nome === prod) + '">' + esc(p.nome) + ' <span class="dest" style="margin-left:6px">' + esc(p.destino) + '</span></button>').join('') +
         '<button type="button" data-pcprod="__outro" aria-pressed="' + (prod === '__outro') + '">Outro…</button></div>' +
@@ -735,14 +752,41 @@ function vPC() {
       lote +
       '<div class="field"><label for="pc-qty">Quantidade de peças boas</label><input id="pc-qty" class="qty" type="number" inputmode="numeric" min="1" step="1" placeholder="0" value="' + esc(S.pc.qtd) + '"></div>' +
       '<button id="pc-send" class="bigbtn" type="button">Lançar na faixa ' + esc(short(f.ini)) + '–' + esc(short(f.fim)) + '</button>' +
-    '</section><div class="stack" id="pc-side"></div></div></div>';
+    '</section><div id="pc-hist"></div></div><div class="stack" id="pc-side"></div></div></div>';
+}
+// 04/11 — histórico das horas + total por produto (pedido Dante).
+function pcHist(x) {
+  const F = x.F;
+  const rows = F.map((f, i) => {
+    const meta = x.metas[i], real = x.real[i], esp = Math.round(x.espF[i]);
+    const futura = x.frac[i] === 0 && real === 0 && i !== x.cur;
+    return '<span><b>' + esc(short(f.ini)) + '–' + esc(short(f.fim)) + '</b>' + (i === x.cur ? ' <span class="dest">agora</span>' : '') + '</span>' +
+      '<span class="r">' + fmt(meta) + '</span>' +
+      '<span class="r muted">' + fmt(esp) + '</span>' +
+      '<span class="r" style="font-weight:700">' + (futura ? '—' : fmt(real)) + '</span>' +
+      '<span class="r">' + (futura || !meta ? '—' : pct(real, meta) + '%') + '</span>';
+  });
+  rows.push('<span><b>TOTAL DO DIA</b></span><span class="r">' + fmt(x.metaDia) + '</span><span class="r muted">' + fmt(x.esp) + '</span><span class="r" style="font-weight:700">' + fmt(x.tot) + '</span><span class="r">' + (x.metaDia ? pct(x.tot, x.metaDia) + '%' : '—') + '</span>');
+  const somaProg = x.prods.reduce((t, p) => t + (+p.qtd || 0), 0);
+  const realProg = x.prods.reduce((t, p) => t + (p.qtd ? (+p.feito || 0) : 0), 0);
+  const semMeta = x.tot - realProg;
+  const pr = x.prods.map((p) => '<span><b>' + esc(p.nome) + '</b>' + (p.qtd ? '' : ' <span class="dest">sem meta</span>') + '</span>' +
+    '<span class="muted" style="font-size:.9rem">' + esc(p.janela) + '</span>' +
+    '<span class="r">' + (p.qtd ? fmt(p.qtd) : '—') + '</span>' +
+    '<span class="r" style="font-weight:700">' + fmt(p.feito) + '</span>' +
+    '<span class="r">' + (p.qtd ? pct(p.feito, p.qtd) + '%' : '—') + '</span>');
+  pr.push('<span><b>TOTAL</b></span><span></span><span class="r">' + (somaProg ? fmt(somaProg) : '—') + '</span><span class="r" style="font-weight:700">' + fmt(x.tot) + '</span><span class="r">' + (somaProg ? pct(realProg, somaProg) + '%' : '—') + '</span>');
+  return '<section class="panel"><div class="phead" style="margin-bottom:8px"><h2>Histórico das horas</h2><span class="muted">programado × realizado até agora</span></div>' +
+    gt('1.15fr .75fr .95fr .95fr .7fr', 520, ['HORA', '>META', '>ATÉ AGORA', '>REALIZADO', '>% DA META'], rows, 'Sem faixas') + '</section>' +
+    '<section class="panel"><div class="phead" style="margin-bottom:8px"><h2>Total por produto</h2><span class="muted">' + (semMeta > 0 ? 'inclui ' + fmt(semMeta) + ' pç sem meta' : 'programado × realizado no dia') + '</span></div>' +
+    gt('1.7fr .75fr .75fr .8fr .65fr', 520, ['PRODUTO', 'JANELA', '>PROGRAMADO', '>REALIZADO', '>%'], pr, 'Sem produtos') + '</section>';
 }
 function pcSide() {
   const side = $('#pc-side'); if (!side) return;
   const c = cellsAtivas().find((k) => k.id === S.pcCel); if (!c) return;
   const F = faixas(); const now = nowMin(); const x = calcCell(c, now);
   const curReal = x.cur >= 0 ? x.real[x.cur] : 0, curEsp = x.cur >= 0 ? Math.round(x.espF[x.cur]) : 0;
-  const regs = S.apont.filter((a) => a.cel === c.id).sort((a, b) => b.faixa - a.faixa || String(b.criado).localeCompare(String(a.criado))).slice(0, 8);
+  const regs = S.apont.filter((a) => a.cel === c.id).sort((a, b) => b.faixa - a.faixa || String(b.criado).localeCompare(String(a.criado)));
   const motOpts = MOTIVOS.map((m) => '<option>' + esc(m) + '</option>').join('');
   const par = x.parAt
     ? '<div class="call" style="animation:none">Parada desde ' + esc(x.parAt.ini) + ' · ' + esc(x.parAt.motivo) + '</div><button class="bigbtn" type="button" data-par-end="' + esc(x.parAt.id) + '" style="background:var(--ok);min-height:56px;margin-top:10px">Encerrar parada</button>'
@@ -752,9 +796,12 @@ function pcSide() {
       '<div class="tile"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '" style="font-size:2.6rem">' + sgn(x.d) + '</span></div></div>' +
       '<div class="muted" style="margin:10px 0 6px">' + (x.cur >= 0 ? 'Hora atual: <b class="c-' + (curReal >= curEsp * (1 - LIM) ? 'ok' : 'late') + '">' + fmt(curReal) + '</b> de ' + fmt(curEsp) + ' esperado (meta ' + fmt(x.metas[x.cur]) + ')' : esc(faseTxt(x))) + '</div>' +
       chart(x.metas, x.real, x.frac, x.cur, x.espF, { h: 130, valSize: 14 }) + '</section>' +
-    '<section class="panel"><h2 style="margin-bottom:6px">Últimos lançamentos</h2>' + (regs.map((a) => regRow(a, true)).join('') || '<p class="muted">Nenhum lançamento hoje.</p>') + '</section>' +
+    '<section class="panel"><h2 style="margin-bottom:6px">Lançamentos do dia</h2>' + (regs.map((a) => regRow(a, true)).join('') || '<p class="muted">Nenhum lançamento hoje.</p>') + '</section>' +
     '<section class="panel"><div class="lbl" style="margin-bottom:8px">Parada da célula</div>' + par + '</section>' +
     '<section class="panel"><div class="lbl" style="margin-bottom:8px">Chamar ajuda</div>' + helpGrid(x) + '</section>';
+  // histórico das horas e total por produto (04/11)
+  const hist = $('#pc-hist');
+  if (hist) hist.innerHTML = pcHist(x);
   // aviso de hora fechada sem lançamento
   const pend = $('#pc-pend');
   const lc = x.lastDone;
@@ -876,11 +923,11 @@ function gTurno() {
     '<div class="cellbox"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="font-size:1.1rem">' + esc(x.c.nome) + '</b><span class="pill p-' + x.st + '">' + PILL[x.st] + '</span></div>' +
     '<div class="muted">' + fmt(x.tot) + ' de ' + fmt(x.metaDia) + ' · <span class="c-' + x.st + '">' + sgn(x.d) + '</span> · perdas ' + fmt(x.perdas) + ' min</div>' +
     chart(x.metas, x.real, x.frac, x.cur, x.espF, { h: 120, valSize: 12 }) +
-    '<div class="stack" style="gap:8px">' + (x.prods.map((p) => '<div><div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b>' + esc(p.nome) + '</b><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span style="margin-left:auto;font-weight:600">' + fmt(p.feito) + ' / ' + fmt(p.qtd) + '</span></div>' + miniBar(p.feito, p.qtd, p.tag === 'done' ? '--ok' : '--brand') + '</div>').join('') || '<span class="muted">Sem produtos</span>') + '</div></div>').join('') + '</div></section>';
+    '<div class="stack" style="gap:8px">' + (x.prods.map((p) => '<div><div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b>' + esc(p.nome) + '</b><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span style="margin-left:auto;font-weight:600">' + fmt(p.feito) + (p.qtd ? ' / ' + fmt(p.qtd) : '') + '</span></div>' + (p.qtd ? miniBar(p.feito, p.qtd, p.tag === 'done' ? '--ok' : '--brand') : '<div class="muted" style="font-size:.85rem">lançado fora da programação · sem meta</div>') + '</div>').join('') || '<span class="muted">Sem produtos</span>') + '</div></div>').join('') + '</div></section>';
   // por produto
   const ps = prodStats([{ date: S.date, ctx: live() }]);
   const tProd = '<section class="panel"><div class="phead"><h2>Por produto</h2><span class="muted">programado × realizado no dia</span></div>' + gt('1.3fr .7fr 1.6fr .9fr .9fr 1.2fr .8fr', 920, ['PRODUTO', 'DESTINO', 'CÉLULAS', '>PROGRAMADO', '>REALIZADO', 'ATENDIMENTO', '>RITMO MÉDIO/H'],
-    ps.P.map((p) => '<b>' + esc(p.nome) + '</b><span><span class="dest">' + esc(p.destino) + '</span></span><span class="muted">' + [...p.cels].map((c) => esc(celName(c))).join(', ') + '</span><span class="r">' + fmt(p.prog) + '</span><span class="r" style="font-weight:700">' + fmt(p.total) + '</span><div><span class="muted">' + pct(p.total, p.prog) + '%</span>' + miniBar(p.total, p.prog, p.prog && p.total >= p.prog ? '--ok' : '--brand') + '</div><span class="r">' + (p.rates.length ? fmt(avg(p.rates)) : '—') + '</span>'), 'Sem produtos') + '</section>';
+    ps.P.map((p) => '<b>' + esc(p.nome) + '</b><span><span class="dest">' + esc(p.destino) + '</span></span><span class="muted">' + [...p.cels].map((c) => esc(celName(c))).join(', ') + '</span><span class="r">' + fmt(p.prog) + '</span><span class="r" style="font-weight:700">' + fmt(p.total) + '</span><div><span class="muted">' + (p.prog ? pct(p.total, p.prog) + '%</span>' + miniBar(p.total, p.prog, p.total >= p.prog ? '--ok' : '--brand') : 'sem meta</span>') + '</div><span class="r">' + (p.rates.length ? fmt(avg(p.rates)) : '—') + '</span>'), 'Sem produtos') + '</section>';
   // faixa table
   let acc = 0, macc = 0;
   const rowsF = F.map((f, i) => {
@@ -994,7 +1041,7 @@ function gPeriodo() {
   const tCel = '<section class="panel"><div class="phead"><h2>Por célula · período</h2></div>' + gt('1.4fr 1.5fr .7fr .8fr .8fr .8fr .8fr .8fr', 1000, ['CÉLULA', 'REALIZADO / META', '>% META', '>DIAS NA META', '>FAIXAS NA META', '>DISPONIB.', '>PÇ/OPER-H', '>PERDAS'],
     D.cells.map((c) => '<b>' + esc(c.nome) + '</b><div><span style="font-weight:600">' + fmt(c.tot) + ' / ' + fmt(c.meta) + '</span>' + miniBar(c.tot, c.meta, c.tot >= c.meta ? '--ok' : '--brand') + '</div><span class="r ' + (pct(c.tot, c.meta) >= 100 ? 'c-ok' : 'c-late') + '" style="font-weight:700">' + pct(c.tot, c.meta) + '%</span><span class="r">' + c.diasMeta + ' de ' + c.dias + '</span><span class="r">' + (c.pass ? pct(c.ok, c.pass) + '%' : '—') + '</span><span class="r">' + (c.progMin ? pct(c.progMin - c.perdas, c.progMin) + '%' : '—') + '</span><span class="r">' + (c.opH ? fmt1(c.tot / c.opH) : '—') + '</span><span class="r">' + fmt(c.perdas) + ' min</span>')) + '</section>';
   const tProd = '<section class="panel"><div class="phead"><h2>Por produto · período</h2><span class="muted">' + (S.g.cel ? 'célula ' + esc(celName(S.g.cel)) : 'todas as células') + '</span></div>' + gt('1.3fr .7fr 1.5fr .6fr .9fr .9fr 1.2fr .8fr .8fr', 1100, ['PRODUTO', 'DESTINO', 'CÉLULAS', '>DIAS', '>PROGRAMADO', '>REALIZADO', 'ATENDIMENTO', '>MÉDIA/H', '>MELHOR/H'],
-    D.ps.P.map((p) => '<b>' + esc(p.nome) + '</b><span><span class="dest">' + esc(p.destino) + '</span></span><span class="muted">' + [...p.cels].map((c) => esc(celName(c))).join(', ') + '</span><span class="r">' + p.dias.size + '</span><span class="r">' + fmt(p.prog) + '</span><span class="r" style="font-weight:700">' + fmt(p.total) + '</span><div><span class="muted">' + pct(p.total, p.prog) + '%</span>' + miniBar(p.total, p.prog, p.prog && p.total >= p.prog ? '--ok' : '--brand') + '</div><span class="r">' + (p.rates.length ? fmt(avg(p.rates)) : '—') + '</span><span class="r muted">' + (p.rates.length ? fmt(Math.max(...p.rates)) : '—') + '</span>'), 'Sem produtos no período') + '</section>';
+    D.ps.P.map((p) => '<b>' + esc(p.nome) + '</b><span><span class="dest">' + esc(p.destino) + '</span></span><span class="muted">' + [...p.cels].map((c) => esc(celName(c))).join(', ') + '</span><span class="r">' + p.dias.size + '</span><span class="r">' + fmt(p.prog) + '</span><span class="r" style="font-weight:700">' + fmt(p.total) + '</span><div><span class="muted">' + (p.prog ? pct(p.total, p.prog) + '%</span>' + miniBar(p.total, p.prog, p.total >= p.prog ? '--ok' : '--brand') : 'sem meta</span>') + '</div><span class="r">' + (p.rates.length ? fmt(avg(p.rates)) : '—') + '</span><span class="r muted">' + (p.rates.length ? fmt(Math.max(...p.rates)) : '—') + '</span>'), 'Sem produtos no período') + '</section>';
   return '<div class="stack">' + filters + '<div class="kpis">' + kpis + '</div>' + daily + tCel + tProd +
     '<section class="panel"><div class="phead"><h2>Capacidade histórica</h2><span class="muted">referência para a próxima programação · o PCP revisa e aprova</span></div>' + capTable(D.ps.CP) + '</section>' +
     '<div class="two">' + perdasBlock(D.allPar, D.cells.map((c) => ({ nome: c.nome, perdas: c.perdas })), Infinity) + '<section class="panel"><div class="phead"><h2>Tempo de resposta aos chamados</h2></div>' + chamTable(cs) + '</section></div></div>';
