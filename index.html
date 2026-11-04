@@ -438,10 +438,16 @@ function calcCell(c, now, ctx) {
   ap.forEach((a) => { if (!isHE(a) && a.faixa >= 0 && a.faixa < n) real[a.faixa] += (+a.qtd || 0); });
   const totFora = ap.filter((a) => !isHE(a) && !progNorm.has(norm(a.produto))).reduce((s2, a) => s2 + (+a.qtd || 0), 0);
   const totExtra = ap.filter((a) => isHE(a)).reduce((s2, a) => s2 + (+a.qtd || 0), 0);
+  // 04/11 (4ª rodada, ordem Dante): o julgamento de ritmo olha SÓ o que foi
+  // programado. Se o programado não foi executado, o número é negativo.
+  const realProg = F.map(() => 0);
+  ap.filter((a) => progNorm.has(norm(a.produto))).forEach((a) => { if (!isHE(a) && a.faixa >= 0 && a.faixa < n) realProg[a.faixa] += (+a.qtd || 0); });
+  const totProg = realProg.reduce((a, b) => a + b, 0) + ap.filter((a) => isHE(a) && progNorm.has(norm(a.produto))).reduce((s2, a) => s2 + (+a.qtd || 0), 0);
   const ini = F.map((f) => toMin(f.ini)), fim = F.map((f) => toMin(f.fim));
   const frac = F.map((_, i) => (now >= fim[i] ? 1 : now <= ini[i] ? 0 : (now - ini[i]) / (fim[i] - ini[i])));
   const espF = metas.map((m, i) => m * frac[i]);
   const esp = Math.round(espF.reduce((a, b) => a + b, 0));
+  const dProg = totProg - esp;
   const metaDia = metas.reduce((a, b) => a + b, 0);
   const totFaixas = real.reduce((a, b) => a + b, 0);
   const tot = totFaixas + totExtra;
@@ -454,16 +460,17 @@ function calcCell(c, now, ctx) {
   let st;
   if (parAt && isFinite(now)) st = 'stop';
   else if (esp === 0 && tot === 0) st = 'wait';
-  else if (d >= 0) st = 'ok';
-  else if (esp > 0 && d / esp >= -LIM) st = 'warn';
+  else if (dProg >= 0) st = 'ok';
+  else if (esp > 0 && dProg / esp >= -LIM) st = 'warn';
   else st = 'late';
   const progMin = F.reduce((a, _, i) => a + frac[i] * (fim[i] - ini[i]), 0);
   const restMin = Math.max(0, Math.round(F.reduce((a, _, i) => a + (1 - frac[i]) * (fim[i] - ini[i]), 0)));
   let proj = tot;
   if (fase !== 'fim' && isFinite(now)) {
     let last = -1; for (let i = n - 1; i >= 0; i--) if (frac[i] === 1) { last = i; break; }
-    const rate = last >= 0 ? real[last] / (fim[last] - ini[last]) : (progMin > 0 ? tot / progMin : 0);
-    proj = Math.round(tot + rate * restMin);
+    // projeção sobre o programado: o ritmo de produção programada é o que diz se a meta fecha
+    const rateP = last >= 0 ? realProg[last] / (fim[last] - ini[last]) : (progMin > 0 ? totProg / progMin : 0);
+    proj = Math.round(totProg + rateP * restMin);
   }
   let lastDone = -1; for (let i = n - 1; i >= 0; i--) if (frac[i] === 1) { lastDone = i; break; }
   const prods = (cp.produtos || []).filter((p) => p && p.nome).map((p) => {
@@ -497,19 +504,20 @@ function calcCell(c, now, ctx) {
     prods.push({ nome: e.nome, destino: e.destino, qtd: 0, cx: 0, ini: e.ini || undefined, fim: e.fim || undefined, feito: e.feito, feitoHE: e.he, extra: true, tag: 'extra',
       janela: e.ini ? short(e.ini) + '–' + short(e.fim) + 'h' : 'dia todo' });
   });
-  const faixasOk = real.filter((v, i) => frac[i] > 0 && espF[i] > 0 && v >= espF[i] * (1 - LIM)).length;
+  const faixasOk = realProg.filter((v, i) => frac[i] > 0 && espF[i] > 0 && v >= espF[i] * (1 - LIM)).length;
   const faixasPass = frac.filter((f, i) => f > 0 && metas[i] > 0).length;
   const perdas = paradasCel.reduce((s, p) => s + parMin(p, now), 0);
   const disp = progMin > 0 ? Math.max(0, 1 - perdas / progMin) : null;
   const ops = +c.operadores || 0;
   const prodHH = ops && progMin > 0 ? tot / (ops * progMin / 60) : null;
-  return { c, metas, real, espF, esp, metaDia, tot, totFaixas, totFora, totExtra, cur, fase, d, st, parAt, calls, proj, restMin, prods, faixasOk, faixasPass, perdas, paradasCel, frac, progMin, disp, prodHH, lastDone, F };
+  return { c, metas, real, realProg, espF, esp, metaDia, tot, totProg, totFaixas, totFora, totExtra, dProg, cur, fase, d, st, parAt, calls, proj, restMin, prods, faixasOk, faixasPass, perdas, paradasCel, frac, progMin, disp, prodHH, lastDone, F };
 }
 function calcAll() {
   const now = nowMin();
   const cells = cellsAtivas().map((c) => calcCell(c, now));
-  const t = cells.reduce((a, x) => ({ tot: a.tot + x.tot, meta: a.meta + x.metaDia, esp: a.esp + x.esp, fora: a.fora + (x.totFora || 0), extra: a.extra + (x.totExtra || 0) }), { tot: 0, meta: 0, esp: 0, fora: 0, extra: 0 });
-  t.d = t.tot - t.esp;
+  const t = cells.reduce((a, x) => ({ tot: a.tot + x.tot, meta: a.meta + x.metaDia, esp: a.esp + x.esp, fora: a.fora + (x.totFora || 0), extra: a.extra + (x.totExtra || 0), prog: a.prog + (x.totProg || 0) }), { tot: 0, meta: 0, esp: 0, fora: 0, extra: 0, prog: 0 });
+  // 4ª rodada: o julgamento da fábrica também é sobre o programado
+  t.d = t.prog - t.esp;
   t.st = t.esp === 0 && t.tot === 0 ? 'wait' : t.d >= 0 ? 'ok' : t.d / t.esp >= -LIM ? 'warn' : 'late';
   const cont = { ok: 0, warn: 0, late: 0, stop: 0, wait: 0 };
   cells.forEach((x) => cont[x.st]++);
@@ -595,7 +603,7 @@ function vGeral() {
     '<div class="clock"><span class="num">' + esc(clockTxt()) + '</span><span class="muted">' + esc(dateLabel(S.date)) + ' · ' + esc(F[0].ini) + '–' + esc(F[F.length - 1].fim) + '</span></div></div>';
   const cards = A.cells.map((x) => {
     const curMeta = x.cur >= 0 ? x.metas[x.cur] : 0;
-    const curReal = x.cur >= 0 ? x.real[x.cur] : 0;
+    const curReal = x.cur >= 0 ? (x.realProg ? x.realProg[x.cur] : x.real[x.cur]) : 0;
     const curEsp = x.cur >= 0 ? Math.round(x.espF[x.cur]) : 0;
     const hst = curReal >= curEsp ? 'ok' : curReal >= curEsp * (1 - LIM) ? 'warn' : 'late';
     const hora = x.cur >= 0
@@ -610,7 +618,7 @@ function vGeral() {
       '<div class="cb">' + calls + par +
         '<div class="trio">' +
           '<div class="trio-c1"><div class="lbl">Realizado / meta do dia</div><div class="bignum num"><b>' + fmt(x.tot) + '</b><span>/ ' + fmt(x.metaDia) + '</span></div>' + foraTxt(x, '.78rem') + '</div>' +
-          '<div class="tile"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '">' + sgn(x.d) + '</span></div>' +
+          '<div class="tile"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '">' + sgn(x.dProg) + '</span></div>' +
           hora +
         '</div>' + progBar(x) +
         '<div class="chartbox"><div class="lbl" style="margin-bottom:4px">Produção por hora</div>' + chart(x.metas, x.real, x.frac, x.cur, x.espF, { fill: true, valSize: 18, labels: x.F.map((f) => f.ini + ' - ' + f.fim), xlClass: 'xl-faixa' }) + '</div>' +
@@ -638,7 +646,7 @@ function vCelula() {
   S.cel = x.c.id;
   const F = faixas();
   const sel = '<select id="sel-cel" class="selcel" aria-label="Célula exibida">' + A.cells.map((k) => '<option value="' + esc(k.c.id) + '"' + (k === x ? ' selected' : '') + '>' + esc(k.c.nome) + '</option>').join('') + '</select>';
-  const curMeta = x.cur >= 0 ? x.metas[x.cur] : 0, curReal = x.cur >= 0 ? x.real[x.cur] : 0, curEsp = x.cur >= 0 ? Math.round(x.espF[x.cur]) : 0;
+  const curMeta = x.cur >= 0 ? x.metas[x.cur] : 0, curReal = x.cur >= 0 ? (x.realProg ? x.realProg[x.cur] : x.real[x.cur]) : 0, curEsp = x.cur >= 0 ? Math.round(x.espF[x.cur]) : 0;
   const hst = curReal >= curEsp ? 'ok' : curReal >= curEsp * (1 - LIM) ? 'warn' : 'late';
   const faltam = Math.max(0, x.metaDia - x.tot);
   const head = '<div class="chead"><div class="nm"><span class="num">' + esc(x.c.nome.toUpperCase()) + '</span><span class="muted" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">' + esc(F[0].ini) + '–' + esc(F[F.length - 1].fim) + ' · ' + esc(x.c.operadores || '—') + ' operadores · ' + esc(x.c.postos || '—') + ' postos ' + sel + '</span></div>' +
@@ -648,7 +656,7 @@ function vCelula() {
     (x.st === 'stop' ? '<div class="call">Parada em andamento desde ' + esc(x.parAt.ini) + ' · ' + esc(x.parAt.motivo) + '</div>' : '');
   const kp = '<div class="kpi4">' +
     '<div class="kp"><span class="lbl">Realizado / meta do dia</span><span class="num">' + fmt(x.tot) + ' <small>/ ' + fmt(x.metaDia) + '</small></span>' + progBar(x) + '<span class="muted">' + pct(x.tot, x.metaDia) + '% · esperado agora ' + fmt(x.esp) + '</span>' + foraTxt(x, '.8rem') + '</div>' +
-    '<div class="kp"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '">' + sgn(x.d) + '</span><span class="muted">peças em relação ao previsto</span></div>' +
+    '<div class="kp"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '">' + sgn(x.dProg) + '</span><span class="muted">peças em relação ao previsto (só o programado)</span></div>' +
     (x.cur >= 0
       ? '<div class="kp"><span class="lbl">Hora atual · ' + esc(F[x.cur].ini) + '–' + esc(F[x.cur].fim) + '</span><span class="num"><span class="c-' + hst + '">' + fmt(curReal) + '</span> <small>/ ' + fmt(curMeta) + '</small></span><span class="muted">esperado até agora: ' + fmt(curEsp) + '</span></div>'
       : '<div class="kp"><span class="lbl">Hora atual</span><span class="num" style="font-size:2.2rem">' + esc(faseTxt(x)) + '</span><span class="muted">&nbsp;</span></div>') +
@@ -806,7 +814,7 @@ function vPC() {
 function pcHist(x) {
   const F = x.F;
   const rows = F.map((f, i) => {
-    const meta = x.metas[i], real = x.real[i], esp = Math.round(x.espF[i]);
+    const meta = x.metas[i], real = x.realProg ? x.realProg[i] : x.real[i], esp = Math.round(x.espF[i]);
     const futura = x.frac[i] === 0 && real === 0 && i !== x.cur;
     return '<span><b>' + esc(short(f.ini)) + '–' + esc(short(f.fim)) + '</b>' + (i === x.cur ? ' <span class="dest">agora</span>' : '') + '</span>' +
       '<span class="r">' + fmt(meta) + '</span>' +
@@ -817,7 +825,7 @@ function pcHist(x) {
   rows.push('<span><b>TOTAL DO DIA</b></span><span class="r">' + fmt(x.metaDia) + '</span><span class="r muted">' + fmt(x.esp) + '</span><span class="r" style="font-weight:700">' + fmt(x.tot) + '</span><span class="r">' + (x.metaDia ? pct(x.tot, x.metaDia) + '%' : '—') + '</span>');
   const notas = [];
   if (x.totExtra > 0) notas.push(fmt(x.totExtra) + ' pç em hora extra (fora das faixas: ' + fmt(x.totFaixas) + ' nas faixas)');
-  if (x.totFora > 0) notas.push(fmt(x.totFora) + ' pç de produto fora da programação (já somadas acima)');
+  if (x.totFora > 0) notas.push(fmt(x.totFora) + ' pç de produto fora da programação (somadas no DIA, fora do ritmo)');
   if (notas.length) rows.push('<span colspan="5" class="muted" style="font-size:.85rem">' + notas.join(' · ') + '</span>');
   const somaProg = x.prods.reduce((t, p) => t + (+p.qtd || 0), 0);
   // 3ª rodada: o realizado mostrado por produto inclui a hora extra, para a
@@ -848,7 +856,7 @@ function pcSide() {
     : '<div class="form-grid"><div class="field"><label for="pc-pmot">Motivo</label><select id="pc-pmot" class="inp">' + motOpts + '</select></div><div class="field"><label for="pc-pobs">Observação</label><input id="pc-pobs" class="inp"></div></div><button class="btn danger" type="button" id="pc-pstart" style="width:100%;margin-top:10px;min-height:52px">Iniciar parada agora</button>';
   side.innerHTML = '<section class="panel"><div class="duo">' +
       '<div class="tile"><span class="lbl">Dia · real / meta</span><span class="num" style="font-size:2.6rem">' + fmt(x.tot) + ' <small>/ ' + fmt(x.metaDia) + '</small></span></div>' +
-      '<div class="tile"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '" style="font-size:2.6rem">' + sgn(x.d) + '</span></div></div>' +
+      '<div class="tile"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '" style="font-size:2.6rem">' + sgn(x.dProg) + '</span></div></div>' +
       '<div class="muted" style="margin:10px 0 6px">' + (x.cur >= 0 ? 'Hora atual: <b class="c-' + (curReal >= curEsp * (1 - LIM) ? 'ok' : 'late') + '">' + fmt(curReal) + '</b> de ' + fmt(curEsp) + ' esperado (meta ' + fmt(x.metas[x.cur]) + ')' : esc(faseTxt(x))) + '</div>' +
       chart(x.metas, x.real, x.frac, x.cur, x.espF, { h: 130, valSize: 14 }) + '</section>' +
     '<section class="panel"><h2 style="margin-bottom:6px">Lançamentos do dia</h2>' + (regs.map((a) => regRow(a, true)).join('') || '<p class="muted">Nenhum lançamento hoje.</p>') + '</section>' +
@@ -943,7 +951,7 @@ function perdasBlock(paradas, cellsX, now) {
 function gTurno() {
   const A = calcAll(); const F = faixas(); const n = F.length;
   const totM = F.map((_, i) => A.cells.reduce((s, x) => s + x.metas[i], 0));
-  const totR = F.map((_, i) => A.cells.reduce((s, x) => s + x.real[i], 0));
+  const totR = F.map((_, i) => A.cells.reduce((s, x) => s + (x.realProg ? x.realProg[i] : x.real[i]), 0));
   const totE = F.map((_, i) => A.cells.reduce((s, x) => s + x.espF[i], 0));
   const fr = F.map((_, i) => Math.max(0, ...A.cells.map((x) => x.frac[i])));
   const cur = A.cells.length ? A.cells[0].cur : -1;
@@ -976,10 +984,10 @@ function gTurno() {
   const tCel = '<section class="panel"><div class="phead"><h2>Por célula</h2><span class="muted">sem ranking individual</span></div>' + gt(colsC, 1000, ['CÉLULA', 'STATUS', 'REALIZADO / META', '>VS. ESPERADO', '>FAIXAS NA META', '>DISPONIB.', '>PÇ/OPER-H', '>PROJEÇÃO'],
     A.cells.map((x) => '<div><b>' + esc(x.c.nome) + '</b><div class="muted" style="font-size:.85rem">' + esc(x.c.operadores || '—') + ' oper. · ' + esc(x.c.postos || '—') + ' postos</div></div><div><span class="pill p-' + x.st + '">' + PILL[x.st] + '</span></div>' +
       '<div><div style="display:flex;justify-content:space-between;font-weight:600"><span>' + fmt(x.tot) + ' / ' + fmt(x.metaDia) + '</span><span class="muted">' + pct(x.tot, x.metaDia) + '%</span></div><div style="margin-top:6px">' + progBar(x) + '</div></div>' +
-      '<span class="r c-' + (x.d >= 0 ? 'ok' : 'late') + '" style="font-weight:700">' + sgn(x.d) + '</span><span class="r">' + x.faixasOk + ' de ' + x.faixasPass + '</span><span class="r">' + (x.disp != null ? Math.round(x.disp * 100) + '%' : '—') + '</span><span class="r">' + (x.prodHH != null ? fmt1(x.prodHH) : '—') + '</span><span class="r">' + fmt(x.proj) + '</span>')) + '</section>';
+      '<span class="r c-' + (x.dProg >= 0 ? 'ok' : 'late') + '" style="font-weight:700">' + sgn(x.dProg) + '</span><span class="r">' + x.faixasOk + ' de ' + x.faixasPass + '</span><span class="r">' + (x.disp != null ? Math.round(x.disp * 100) + '%' : '—') + '</span><span class="r">' + (x.prodHH != null ? fmt1(x.prodHH) : '—') + '</span><span class="r">' + fmt(x.proj) + '</span>')) + '</section>';
   const det = '<section class="panel"><div class="phead"><h2>Detalhe por célula</h2><span class="muted">hora a hora e produtos</span></div><div class="cdet">' + A.cells.map((x) =>
     '<div class="cellbox"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="font-size:1.1rem">' + esc(x.c.nome) + '</b><span class="pill p-' + x.st + '">' + PILL[x.st] + '</span></div>' +
-    '<div class="muted">' + fmt(x.tot) + ' de ' + fmt(x.metaDia) + ' · <span class="c-' + x.st + '">' + sgn(x.d) + '</span> · perdas ' + fmt(x.perdas) + ' min</div>' +
+    '<div class="muted">' + fmt(x.tot) + ' de ' + fmt(x.metaDia) + ' · <span class="c-' + x.st + '">' + sgn(x.dProg) + ' no programado</span> · perdas ' + fmt(x.perdas) + ' min</div>' +
     chart(x.metas, x.real, x.frac, x.cur, x.espF, { h: 120, valSize: 12 }) +
     '<div class="stack" style="gap:8px">' + (x.prods.map((p) => '<div><div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b>' + esc(p.nome) + '</b><span class="tag ' + tagCls[p.tag] + '">' + tagTxt[p.tag] + '</span><span style="margin-left:auto;font-weight:600">' + fmt(p.feito) + (p.qtd ? ' / ' + fmt(p.qtd) : '') + (p.feitoHE > 0 ? ' <span class="muted" style="font-size:.8em">+' + fmt(p.feitoHE) + ' HE</span>' : '') + '</span></div>' + (p.qtd ? miniBar(p.feito, p.qtd, p.tag === 'done' ? '--ok' : '--brand') : '<div class="muted" style="font-size:.85rem">fora da programação · sem meta · somado no DIA</div>') + '</div>').join('') || '<span class="muted">Sem produtos</span>') + '</div></div>').join('') + '</div></section>';
   // por produto
@@ -990,7 +998,7 @@ function gTurno() {
   let acc = 0, macc = 0;
   const rowsF = F.map((f, i) => {
     if (fr[i] === 0 && totR[i] === 0) return null;
-    acc += totR[i]; macc += totE[i];
+    acc += totR[i]; macc += totE[i];  // totR agora é o programado (4ª rodada)
     const prods = {};
     S.apont.filter((a) => a.faixa === i && a.status !== 'cancelado').forEach((a) => { prods[a.produto] = (prods[a.produto] || 0) + (+a.qtd || 0); });
     return '<b>' + esc(f.ini) + '–' + esc(f.fim) + (i === cur ? ' ▸' : '') + '</b><span class="r" style="font-weight:600">' + fmt(totR[i]) + '</span><span class="r muted">' + fmt(totM[i]) + '</span><span class="r">' + fmt(acc) + '</span><span class="r muted">' + fmt(macc) + '</span><span class="r c-' + (acc - macc >= 0 ? 'ok' : 'late') + '" style="font-weight:700">' + sgn(acc - macc) + '</span><span class="muted">' + Object.entries(prods).map(([k, v]) => esc(k) + ' ×' + fmt(v)).join(' · ') + '</span>';
