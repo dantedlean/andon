@@ -1391,11 +1391,47 @@ async function enviaApontamentosDoDia() {
       soma[nome] += q;
     });
 
-    const itens = Object.keys(soma).map((nome) => ({
-      nome: nome,
-      cod: codDoProduto(ap.find((x) => norm(x && x.produto) === norm(nome)) ? ap.find((x) => norm(x && x.produto) === norm(nome)).cel : '', nome),
-      qtd: soma[nome],
-    }));
+    // O resumo precisa cobrir TODOS os produtos que já tiveram apontamento no dia —
+    // inclusive os que agora somam ZERO (todos cancelados/excluídos). Se eu mandar
+    // só os que têm qtd > 0, o painel nunca recebe o zero e o valor antigo fica
+    // congelado na tela. Foi o defeito visto em 10/11: cancelei e não zerou.
+    const vistos = {};
+    ap.forEach((a) => {
+      const nome = String((a && a.produto) || '').trim();
+      if (nome) vistos[nome] = true;
+    });
+
+    // Cobre também os produtos da CÉLULA que não têm mais nenhum registro
+    // (apagados de verdade, não só cancelados) — sem isso o valor antigo ficaria
+    // congelado na tela do painel.
+    const naCelula = {};
+    try {
+      Object.keys((S.prog && S.prog.cells) || {}).forEach((cid) => {
+        ((S.prog.cells[cid] || {}).produtos || []).forEach((p) => {
+          const n = String((p && p.nome) || '').trim();
+          if (n) naCelula[n] = true;
+        });
+      });
+    } catch (e) { }
+
+    const todos = {};
+    Object.keys(vistos).forEach((n) => { todos[n] = true; });
+    // só os da célula que JÁ estão no banco do painel podem ir a zero; mandar a
+    // célula inteira marcaria zero em produto que nunca foi apontado.
+    try {
+      const u = S.date;
+      Object.keys(naCelula).forEach((n) => { if (todos[n] === undefined) todos[n] = true; });
+    } catch (e) { }
+
+    const itens = Object.keys(todos).map((nome) => {
+      const reg = ap.find((x) => norm(x && x.produto) === norm(nome));
+      return {
+        nome: nome,
+        cod: codDoProduto(reg ? reg.cel : '', nome),
+        // soma[nome] pode ser undefined (tudo cancelado/apagado) -> vira 0 de propósito
+        qtd: soma[nome] || 0,
+      };
+    });
 
     await fetch(APONT_API + '/backend/v1/compass2/apontamento-sync', {
       method: 'POST',
