@@ -418,12 +418,21 @@ function clockTxt() {
 const PROG_API = 'https://painel-entregas-semanais-708f0.shrd00.internal.goskip.dev';
 
 // Acha a célula "montagem" pelo nome, tolerando acento/caixa/espaço.
+// Considera a celula como "Montagem" apenas quando o nome, normalizado, e exatamente
+// 'montagem' (aceita Montagem/MONTAGEM/montagem e acento). NAO aceita 'Montagem Final',
+// 'Pre-montagem' etc. — regra Dlean 10/11: so a celula Montagem tem o botao.
+function ehCelulaMontagem(nome) {
+  // so espaco, acento e caixa podem variar — numero, hifen ou palavra extra
+  // fazem a celula NAO ser a Montagem (regra Dlean 10/11).
+  const limpa = String(nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (!/^[A-Za-z]+$/.test(limpa)) return false;
+  return limpa.toLowerCase() === 'montagem';
+}
 function achaCelulaMontagem() {
   const norm = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '');
   const alvo = 'montagem';
   const cells = (S.cfg && S.cfg.celulas) || [];
-  for (const c of cells) if (norm(c.nome) === alvo) return c.id;
-  for (const c of cells) if (norm(c.nome).indexOf(alvo) >= 0) return c.id;
+  for (const c of cells) if (ehCelulaMontagem(c.nome)) return c.id;
   return null;
 }
 
@@ -1270,7 +1279,7 @@ function vProg() {
       (S.canEdit ? '<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap"><div class="field"><label for="mh-' + esc(c.id) + '">Preencher com meta/hora</label><input id="mh-' + esc(c.id) + '" class="inp" type="number" min="0" placeholder="ex.: 271"></div><button class="btn" type="button" data-fillmh="' + esc(c.id) + '">Aplicar (proporcional à duração)</button></div>' : '') +
       '<div class="metas">' + metas + '</div><span class="lbl">Produtos · “Pç/caixa” ativa os botões de caixa no PC da célula</span><div class="scroll"><div class="stack" style="gap:8px">' + (prods || '<span class="muted">Nenhum produto</span>') + '</div></div>' +
       (S.canEdit ? '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;align-self:flex-start;margin-top:2px">' +
-        '<button class="btn" type="button" data-buscarprog="' + esc(c.id) + '">\u21af Buscar programa\u00e7\u00e3o</button>' +
+        (ehCelulaMontagem(c.nome) ? '<button class="btn" type="button" data-buscarprog="' + esc(c.id) + '">\u21af Buscar programa\u00e7\u00e3o</button>' : '') +
         '<button class="btn" type="button" data-ppadd="' + esc(c.id) + '">+ Produto</button>' +
         '<button class="btn pri" type="button" data-savecel="' + esc(c.id) + '">Salvar célula</button></div>' : '') + '</div>';
   }).join('');
