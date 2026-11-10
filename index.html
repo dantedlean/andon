@@ -1503,18 +1503,42 @@ async function enviaApontamentosDoDia() {
     // silencioso por desenho
   }
 }
-window.enviaApontamentosDoDia = enviaApontamentosDoDia;
+// ── FILA DE ENVIO (correção 10/11, auditoria dos 3 apontamentos) ─────────────
+// O envio era fire-and-forget: três apontamentos no MESMO segundo disparavam três
+// POSTs concorrentes. Cada um lia o banco num instante diferente e o ÚLTIMO a
+// terminar sobrescrevia o resumo do dia com o retrato mais ANTIGO — foi o que
+// zerou BANCADA DE INDUÇÃO V3 e BTCP-0004 em 10/11 22:06:43, com os três
+// apontamentos gravados e corretos no Supabase.
+// Aqui os envios são SERIALIZADOS: um por vez; se chegar pedido durante um envio,
+// marca "tem novidade" e roda mais uma vez ao terminar, sempre com o estado final.
+let _envFila = Promise.resolve();
+let _envPendente = false;
+function enviaApontamentosSerializado() {
+  if (_envPendente) return _envFila; // já há um pedido na fila
+  _envPendente = true;
+  const rodar = async () => {
+    _envPendente = false;
+    try {
+      await enviaApontamentosDoDia();
+    } catch (e) {
+      // silencioso, como o original
+    }
+  };
+  _envFila = _envFila.then(rodar, rodar);
+  return _envFila;
+}
+window.enviaApontamentosDoDia = enviaApontamentosSerializado;
 
 async function addApont(cel, faixa, produto, qtd, operador) {
   const cp = S.prog.cells[cel] || {};
   const pr = (cp.produtos || []).find((p) => norm(p.nome) === norm(produto));
   const _refApont = await S.db.collection('dias/' + S.date + '/apont').add({ cel, faixa, produto, destino: pr ? pr.destino || 'WARD' : 'WARD', qtd, operador: operador || '', status: 'ativo', criado: new Date().toISOString(), por: S.uid || '' });
-  try { enviaApontamentosDoDia(); } catch (e) {}
+  try { enviaApontamentosSerializado(); } catch (e) {}
   return _refApont;
 }
 async function cancelApont(id, quiet) {
   try { await S.db.doc('dias/' + S.date + '/apont/' + id).update({ status: 'cancelado', canceladoEm: new Date().toISOString() });
-    try { enviaApontamentosDoDia(); } catch (e) {} if (!quiet) toast('Lançamento cancelado'); } catch (e) { toast(errMsg(e)); }
+    try { enviaApontamentosSerializado(); } catch (e) {} if (!quiet) toast('Lançamento cancelado'); } catch (e) { toast(errMsg(e)); }
 }
 async function pcLancar(qtd, label) {
   const F = faixas();
