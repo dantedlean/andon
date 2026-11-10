@@ -1428,8 +1428,29 @@ async function enviaApontamentosDoDia() {
     // extra, faixa -1). Somar a célula inteira no peso do produto inflaria o
     // Supermercado quando o mesmo item passa por Solda e Montagem.
     // Só a Montagem gera produto pronto.
-    const idMontagem = (() => { try { return achaCelulaMontagem(); } catch (e) { return null; } })();
+    // A célula de Montagem é resolvida por DUAS fontes, porque S.cfg pode ainda
+    // não ter carregado quando o operador aponta (fire-and-forget): a config de
+    // células e o próprio dia (S.prog.cells), que é quem realmente tem os
+    // produtos. Sem esse fallback, somaMont ficava vazio e o painel recebia
+    // montagem:0 — foi o que aconteceu no teste do BTCP-0004 em 10/11 19:32.
+    const idMontagem = (() => {
+      try {
+        const idCfg = achaCelulaMontagem();
+        if (idCfg) return idCfg;
+      } catch (e) {}
+      try {
+        // fallback: procura a célula cujo NOME é "Montagem" no cadastro do dia
+        const dc = (S.prog && S.prog.cells) || {};
+        const cfgs = (S.cfg && S.cfg.celulas) || [];
+        for (const c of cfgs) if (ehCelulaMontagem(c.nome) && dc[c.id]) return c.id;
+        for (const k of Object.keys(dc)) if (ehCelulaMontagem(k)) return k;
+      } catch (e) {}
+      return null;
+    })();
     const somaMont = {};
+    // Sem idMontagem, NÃO somar nada: melhor faltar do que inflar o estoque de
+    // prontos com apontamento de outra célula. O painel também recebe `cel` por
+    // item e repete a checagem do lado de lá.
     if (idMontagem) {
       ap.forEach((a) => {
         if (!a || a.status === 'cancelado') return;
@@ -1443,7 +1464,13 @@ async function enviaApontamentosDoDia() {
     }
 
     const itens = Object.keys(todos).map((nome) => {
-      const reg = ap.find((x) => norm(x && x.produto) === norm(nome));
+      // O registro de referência deve ser o da MONTAGEM quando existir: o mesmo
+      // produto aparece em outras células com grafia diferente (BTCP-0004 na
+      // Montagem, "BTCP - 0004" no Corte laser), e usar o primeiro que aparecer
+      // pode pegar o código/célula errados.
+      const regs = ap.filter((x) => x && norm(x.produto) === norm(nome));
+      const reg =
+        (idMontagem && regs.find((x) => String(x.cel || '') === String(idMontagem))) || regs[0];
       return {
         nome: nome,
         cod: codDoProduto(reg ? reg.cel : '', nome),
@@ -1451,6 +1478,19 @@ async function enviaApontamentosDoDia() {
         qtd: soma[nome] || 0,
         // parcela exclusiva da Montagem -> fonte do Supermercado (produtos acabados)
         montagem: somaMont[nome] || 0,
+        // célula do registro: o painel confere do lado dele em vez de confiar.
+        // `celNome` é o que decide (o hook roda em outro banco e não vê o cadastro
+        // de células daqui) — nome exato "Montagem", sem acento/caixa.
+        cel: String((reg && reg.cel) || ''),
+        celNome: (() => {
+          try {
+            const idC = String((reg && reg.cel) || '');
+            const c = ((S.cfg && S.cfg.celulas) || []).find((x) => String(x.id) === idC);
+            return c ? String(c.nome || '') : '';
+          } catch (e) {
+            return '';
+          }
+        })(),
       };
     });
 
