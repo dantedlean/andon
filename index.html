@@ -1411,8 +1411,9 @@ window.enviaApontamentosDoDia = enviaApontamentosDoDia;
 async function addApont(cel, faixa, produto, qtd, operador) {
   const cp = S.prog.cells[cel] || {};
   const pr = (cp.produtos || []).find((p) => norm(p.nome) === norm(produto));
-  return S.db.collection('dias/' + S.date + '/apont').add({ cel, faixa, produto, destino: pr ? pr.destino || 'WARD' : 'WARD', qtd, operador: operador || '', status: 'ativo', criado: new Date().toISOString(), por: S.uid || '' });
+  const _refApont = await S.db.collection('dias/' + S.date + '/apont').add({ cel, faixa, produto, destino: pr ? pr.destino || 'WARD' : 'WARD', qtd, operador: operador || '', status: 'ativo', criado: new Date().toISOString(), por: S.uid || '' });
   try { enviaApontamentosDoDia(); } catch (e) {}
+  return _refApont;
 }
 async function cancelApont(id, quiet) {
   try { await S.db.doc('dias/' + S.date + '/apont/' + id).update({ status: 'cancelado', canceladoEm: new Date().toISOString() });
