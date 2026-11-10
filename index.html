@@ -487,13 +487,15 @@ async function buscarProgramacaoNaCelula(celId) {
     map[cod].qtd += q;
     if (!map[cod].nome) map[cod].nome = cod;
   });
-  const prods = Object.keys(map).map((c) => map[c]);
+  const prods = Object.keys(map).map((c) => ({ cod: c, nome: map[c].nome, qtd: map[c].qtd }));
 
   const cel = S.draft.cells[id] || (S.draft.cells[id] = { ativa: true, metas: [], produtos: [] });
   if (!Array.isArray(cel.produtos)) cel.produtos = [];
 
   // ZERA (decisão Dlean: célula sempre limpa, sem informação do dia anterior)
-  cel.produtos = prods.map((p) => ({ nome: p.nome, destino: 'WARD', qtd: p.qtd, cx: 0, ini: '', fim: '' }));
+  // 'cod' viaja junto: o apontamento identifica por NOME, e a ponte para o
+  // painel precisa do código para casar com a carteira.
+  cel.produtos = prods.map((p) => ({ nome: p.nome, destino: 'WARD', qtd: p.qtd, cx: 0, ini: '', fim: '', cod: p.cod || '' }));
 
   // Metas por faixa: proporcional à duração das faixas DESTE dia.
   // O total das metas = soma das quantidades do dia (21 hoje).
@@ -1345,13 +1347,76 @@ function toast(msg, action) {
   if (action) { b.textContent = action.label; b.hidden = false; toastFn = action.fn; } else { b.hidden = true; toastFn = null; }
   t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; toastFn = null; }, action ? 7000 : 3400);
 }
+// ============================================================================
+// PONTE DE APONTAMENTOS → PAINEL COMPASS 2.2  (pedido Dlean 10/11)
+// Depois de CADA lançamento ou cancelamento de apontamento, manda o resumo do
+// dia para o painel. Lá o hook grava REALIZADA e marca/desmarca o EXEC.
+//
+// O Andon identifica produto por NOME; manda o nome e, quando existir, o código
+// que ficou guardado no produto da célula pelo botão "Buscar programação".
+// ============================================================================
+const APONT_API = 'https://painel-entregas-semanais-708f0.shrd00.internal.goskip.dev';
+
+// O código do produto vem do botão de programação e fica no produto da célula.
+function codDoProduto(cel, nome) {
+  try {
+    const cp = (S.prog && S.prog.cells && S.prog.cells[cel]) || {};
+    const p = (cp.produtos || []).find((x) => norm(x.nome) === norm(nome));
+    return p && p.cod ? String(p.cod) : '';
+  } catch (e) { return ''; }
+}
+
+// Consolida o dia por produto (só apontamentos ativos) e envia ao painel.
+// Fire-and-forget: falha de rede NUNCA pode travar o apontamento do operador.
+async function enviaApontamentosDoDia() {
+  try {
+    const dataIso = S.date;
+    if (!dataIso) return;
+    let ap = S.apont || [];
+    // garante leitura fresca (o apontamento acabou de ser gravado)
+    try {
+      const snap = await S.db.collection('dias/' + dataIso + '/apont').get();
+      if (snap && snap.docs) ap = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      else if (Array.isArray(snap)) ap = snap;
+    } catch (e) { /* usa o cache local */ }
+
+    const soma = {};
+    ap.forEach((a) => {
+      if (!a || a.status === 'cancelado') return;
+      const nome = String(a.produto || '').trim();
+      if (!nome) return;
+      const q = +a.qtd || 0;
+      if (!(q > 0)) return;
+      if (!soma[nome]) soma[nome] = 0;
+      soma[nome] += q;
+    });
+
+    const itens = Object.keys(soma).map((nome) => ({
+      nome: nome,
+      cod: codDoProduto(ap.find((x) => norm(x && x.produto) === norm(nome)) ? ap.find((x) => norm(x && x.produto) === norm(nome)).cel : '', nome),
+      qtd: soma[nome],
+    }));
+
+    await fetch(APONT_API + '/backend/v1/compass2/apontamento-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: dataIso, itens: itens }),
+    });
+  } catch (e) {
+    // silencioso por desenho
+  }
+}
+window.enviaApontamentosDoDia = enviaApontamentosDoDia;
+
 async function addApont(cel, faixa, produto, qtd, operador) {
   const cp = S.prog.cells[cel] || {};
   const pr = (cp.produtos || []).find((p) => norm(p.nome) === norm(produto));
   return S.db.collection('dias/' + S.date + '/apont').add({ cel, faixa, produto, destino: pr ? pr.destino || 'WARD' : 'WARD', qtd, operador: operador || '', status: 'ativo', criado: new Date().toISOString(), por: S.uid || '' });
+  try { enviaApontamentosDoDia(); } catch (e) {}
 }
 async function cancelApont(id, quiet) {
-  try { await S.db.doc('dias/' + S.date + '/apont/' + id).update({ status: 'cancelado', canceladoEm: new Date().toISOString() }); if (!quiet) toast('Lançamento cancelado'); } catch (e) { toast(errMsg(e)); }
+  try { await S.db.doc('dias/' + S.date + '/apont/' + id).update({ status: 'cancelado', canceladoEm: new Date().toISOString() });
+    try { enviaApontamentosDoDia(); } catch (e) {} if (!quiet) toast('Lançamento cancelado'); } catch (e) { toast(errMsg(e)); }
 }
 async function pcLancar(qtd, label) {
   const F = faixas();
