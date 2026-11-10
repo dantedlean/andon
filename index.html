@@ -410,27 +410,25 @@ function clockTxt() {
 // ---------- cálculo ----------
 // ============================================================================
 // BOTÃO "BUSCAR PROGRAMAÇÃO" NA CÉLULA MONTAGEM  (pedido Dlean 10/11)
-// Lê a coleção pública `programacao_dia` do painel Compass 2.2 (Skip 60434) e
-// preenche a célula com os produtos programados em Curitiba para o dia aberto.
-// Zera a célula antes (decisão Dlean: nada do dia anterior) e distribui a qtd
-// do dia nas faixas REAIS do dia, proporcional à duração em minutos.
+// Lê a coleção pública `programacao_dia` do painel Compass 2.2 e preenche a
+// célula com os produtos programados em Curitiba para o dia aberto.
+//
+// CORREÇÃO 10/11 12:10 — o botão não fazia nada porque esta função chamava
+// `dirty`, que só existe DENTRO do handler de clique (escopo local). Aqui só
+// usamos `S.draftDirty` e `render()`, que são do escopo do app.
 // ============================================================================
 const PROG_API = 'https://painel-entregas-semanais-708f0.shrd00.internal.goskip.dev';
 
-// Acha a célula "montagem" pelo nome, tolerando acento/caixa/espaço.
 // Considera a celula como "Montagem" apenas quando o nome, normalizado, e exatamente
 // 'montagem' (aceita Montagem/MONTAGEM/montagem e acento). NAO aceita 'Montagem Final',
 // 'Pre-montagem' etc. — regra Dlean 10/11: so a celula Montagem tem o botao.
 function ehCelulaMontagem(nome) {
-  // so espaco, acento e caixa podem variar — numero, hifen ou palavra extra
-  // fazem a celula NAO ser a Montagem (regra Dlean 10/11).
   const limpa = String(nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
   if (!/^[A-Za-z]+$/.test(limpa)) return false;
   return limpa.toLowerCase() === 'montagem';
 }
+
 function achaCelulaMontagem() {
-  const norm = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '');
-  const alvo = 'montagem';
   const cells = (S.cfg && S.cfg.celulas) || [];
   for (const c of cells) if (ehCelulaMontagem(c.nome)) return c.id;
   return null;
@@ -443,7 +441,6 @@ function distribuiNasFaixas(total, faixas) {
   const soma = durs.reduce((a, b) => a + b, 0);
   if (!(soma > 0) || !(total > 0)) return faixas.map(() => 0);
   const metas = durs.map((d) => Math.round((total * d) / soma));
-  // acerta o resto na última faixa com duração, para o total bater exatamente
   let ultimo = -1;
   for (let i = 0; i < durs.length; i++) if (durs[i] > 0) ultimo = i;
   const dif = total - metas.reduce((a, b) => a + b, 0);
@@ -462,8 +459,9 @@ async function buscaProgramacaoDia(dataIso) {
 }
 
 async function buscarProgramacaoNaCelula(celId) {
-  if (!celId) return toast('Não encontrei a célula "Montagem". Verifique o nome no cadastro de células.');
-  if (!S.draft) return toast('Abra a programação do dia e salve a célula antes de buscar.');
+  if (!S.draft) return toast('Abra a programação do dia primeiro.');
+  const id = celId || achaCelulaMontagem();
+  if (!id) return toast('Não encontrei a célula "Montagem". Verifique o nome no cadastro de células.');
 
   const dataIso = S.date;
   let itens;
@@ -474,7 +472,6 @@ async function buscarProgramacaoNaCelula(celId) {
     return toast('Não há programação publicada para ' + dateLabel(dataIso) + '. Programe o dia no painel Compass e clique de novo.');
   }
 
-  // Agrupa por produto (a coleção já vem consolidada, mas garante)
   const map = {};
   itens.forEach((x) => {
     const cod = String(x.cod || '').trim();
@@ -486,25 +483,23 @@ async function buscarProgramacaoNaCelula(celId) {
   });
   const prods = Object.keys(map).map((c) => map[c]);
 
-  const cel = S.draft.cells[celId] || (S.draft.cells[celId] = { ativa: true, metas: [], produtos: [] });
+  const cel = S.draft.cells[id] || (S.draft.cells[id] = { ativa: true, metas: [], produtos: [] });
   if (!Array.isArray(cel.produtos)) cel.produtos = [];
-  if (!Array.isArray(cel.metas)) cel.metas = [];
 
-  // ZERA (decisão Dlean: célula sempre criada limpa, sem informação do dia anterior)
+  // ZERA (decisão Dlean: célula sempre limpa, sem informação do dia anterior)
   cel.produtos = prods.map((p) => ({ nome: p.nome, destino: 'WARD', qtd: p.qtd, cx: 0, ini: '', fim: '' }));
 
-  // Metas por faixa, proporcional à duração das faixas DESTE dia
+  // Metas por faixa: proporcional à duração das faixas DESTE dia.
+  // O total das metas = soma das quantidades do dia (21 hoje).
   const faixasDoDia = (S.draft.faixas && S.draft.faixas.length) ? S.draft.faixas : FAIXAS_PADRAO;
   const totalDia = prods.reduce((a, p) => a + p.qtd, 0);
   cel.metas = distribuiNasFaixas(totalDia, faixasDoDia);
   while (cel.metas.length < faixasDoDia.length) cel.metas.push(0);
 
-  dirty(); render();
-  toast('Programação de Curitiba carregada: ' + prods.length + ' produto(s) · ' + totalDia + ' pç. Revise e clique em Salvar célula.');
+  S.draftDirty = true;
+  render();
+  toast('Programação de Curitiba carregada: ' + prods.length + ' produto(s) · ' + totalDia + ' pç nas faixas. Revise e clique em Salvar célula.');
 }
-
-// Botão dentro da célula (ao lado de "+ Produto" e "Salvar célula")
-const _btnProg = '<button class="btn" type="button" data-buscarprog="__CEL__">↯ Buscar programação</button>';
 
 const celName = (id) => (((S.cfg && S.cfg.celulas) || []).find((c) => c.id === id) || {}).nome || id;
 const celCfg = (id) => (((S.cfg && S.cfg.celulas) || []).find((c) => c.id === id)) || { id, nome: id, operadores: 0, postos: 0 };
@@ -1279,7 +1274,7 @@ function vProg() {
       (S.canEdit ? '<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap"><div class="field"><label for="mh-' + esc(c.id) + '">Preencher com meta/hora</label><input id="mh-' + esc(c.id) + '" class="inp" type="number" min="0" placeholder="ex.: 271"></div><button class="btn" type="button" data-fillmh="' + esc(c.id) + '">Aplicar (proporcional à duração)</button></div>' : '') +
       '<div class="metas">' + metas + '</div><span class="lbl">Produtos · “Pç/caixa” ativa os botões de caixa no PC da célula</span><div class="scroll"><div class="stack" style="gap:8px">' + (prods || '<span class="muted">Nenhum produto</span>') + '</div></div>' +
       (S.canEdit ? '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;align-self:flex-start;margin-top:2px">' +
-        (ehCelulaMontagem(c.nome) ? '<button class="btn" type="button" data-buscarprog="' + esc(c.id) + '">\u21af Buscar programa\u00e7\u00e3o</button>' : '') +
+        (ehCelulaMontagem(c.nome) ? '<button class="btn" type="button" data-buscarprog="' + esc(c.id) + '">↯ Buscar programação</button>' : '') +
         '<button class="btn" type="button" data-ppadd="' + esc(c.id) + '">+ Produto</button>' +
         '<button class="btn pri" type="button" data-savecel="' + esc(c.id) + '">Salvar célula</button></div>' : '') + '</div>';
   }).join('');
@@ -1533,7 +1528,7 @@ document.addEventListener('click', async (ev) => {
   if (t.id === 'pg-addcel') { const id = 'C' + Date.now().toString(36).slice(-5).toUpperCase(); D.celulas.push({ id, nome: 'Nova célula', operadores: 0, postos: 0 }); D.cells[id] = { ativa: true, metas: D.faixas.map(() => 0), produtos: [] }; dirty(); render(); return; }
   if (t.id === 'pg-addfx') { const last = D.faixas[D.faixas.length - 1]; const a = last ? toMin(last.fim) : 450; D.faixas.push({ ini: hhmm(a), fim: hhmm(a + 60) }); Object.values(D.cells).forEach((c) => c.metas.push(0)); dirty(); render(); return; }
   if (d.fxdel != null) { const i = +d.fxdel; D.faixas.splice(i, 1); Object.values(D.cells).forEach((c) => c.metas.splice(i, 1)); dirty(); render(); return; }
-  if (t.dataset.buscarprog) { if (!S.canEdit) return toast('Sem permissao para editar a celula.'); buscarProgramacaoNaCelula(t.dataset.buscarprog); return; }
+  if (t.dataset.buscarprog) { buscarProgramacaoNaCelula(t.dataset.buscarprog); return; }
   if (d.ppadd) { D.cells[d.ppadd].produtos.push({ nome: '', destino: 'WARD', qtd: 0, cx: 0, ini: '', fim: '' }); dirty(); render(); return; }
   if (d.ppdel) { D.cells[d.ppdel].produtos.splice(+d.j, 1); dirty(); render(); return; }
   if (d.fillmh) {
