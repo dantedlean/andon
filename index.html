@@ -434,17 +434,23 @@ function achaCelulaMontagem() {
   return null;
 }
 
-// Distribui `total` nas faixas por minutos, fechando exatamente o total.
+// Distribui `total` nas faixas proporcional aos minutos, pelo MÉTODO DO MAIOR RESTO.
+// Antes eu jogava todo o arredondamento na última faixa (30 un virava 5 na última,
+// enquanto as outras ficavam com 2). Agora cada faixa recebe o inteiro mais próximo
+// do valor proporcional e a soma fecha exatamente o total.
 function distribuiNasFaixas(total, faixas) {
   const toMin = (s) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '').trim()); return m ? (+m[1]) * 60 + (+m[2]) : NaN; };
   const durs = faixas.map((f) => { const a = toMin(f.ini), b = toMin(f.fim); return (isFinite(a) && isFinite(b) && b > a) ? (b - a) : 0; });
   const soma = durs.reduce((a, b) => a + b, 0);
   if (!(soma > 0) || !(total > 0)) return faixas.map(() => 0);
-  const metas = durs.map((d) => Math.round((total * d) / soma));
-  let ultimo = -1;
-  for (let i = 0; i < durs.length; i++) if (durs[i] > 0) ultimo = i;
-  const dif = total - metas.reduce((a, b) => a + b, 0);
-  if (ultimo >= 0) metas[ultimo] = Math.max(0, metas[ultimo] + dif);
+  const exato = durs.map((d) => (total * d) / soma);
+  const metas = exato.map((v) => Math.floor(v));
+  let resto = total - metas.reduce((a, b) => a + b, 0);
+  const ordem = exato.map((v, i) => ({ i: i, frac: v - Math.floor(v), dur: durs[i] }))
+    .filter((x) => x.dur > 0)
+    .sort((a, b) => (b.frac - a.frac) || (b.dur - a.dur));
+  let k = 0;
+  while (resto > 0 && ordem.length) { metas[ordem[k % ordem.length].i] += 1; resto--; k++; }
   return metas;
 }
 
