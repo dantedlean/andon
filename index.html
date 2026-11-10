@@ -1423,6 +1423,25 @@ async function enviaApontamentosDoDia() {
       Object.keys(naCelula).forEach((n) => { if (todos[n] === undefined) todos[n] = true; });
     } catch (e) { }
 
+    // PARCELA DA MONTAGEM (pedido Dlean 10/11): o painel precisa saber quanto foi
+    // apontado SÓ na célula "Montagem" — todas as faixas horárias (inclusive hora
+    // extra, faixa -1). Somar a célula inteira no peso do produto inflaria o
+    // Supermercado quando o mesmo item passa por Solda e Montagem.
+    // Só a Montagem gera produto pronto.
+    const idMontagem = (() => { try { return achaCelulaMontagem(); } catch (e) { return null; } })();
+    const somaMont = {};
+    if (idMontagem) {
+      ap.forEach((a) => {
+        if (!a || a.status === 'cancelado') return;
+        if (String(a.cel || '') !== String(idMontagem)) return;
+        const nome = String(a.produto || '').trim();
+        if (!nome) return;
+        const q = +a.qtd || 0;
+        if (!(q > 0)) return;
+        somaMont[nome] = (somaMont[nome] || 0) + q;
+      });
+    }
+
     const itens = Object.keys(todos).map((nome) => {
       const reg = ap.find((x) => norm(x && x.produto) === norm(nome));
       return {
@@ -1430,6 +1449,8 @@ async function enviaApontamentosDoDia() {
         cod: codDoProduto(reg ? reg.cel : '', nome),
         // soma[nome] pode ser undefined (tudo cancelado/apagado) -> vira 0 de propósito
         qtd: soma[nome] || 0,
+        // parcela exclusiva da Montagem -> fonte do Supermercado (produtos acabados)
+        montagem: somaMont[nome] || 0,
       };
     });
 
