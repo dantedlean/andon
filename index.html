@@ -1877,24 +1877,8 @@ function subscribe() {
   S.loaded.prog = false; S.prog = null; S.apont = []; S.paradas = []; S.chamados = []; S.draft = null; S.draftDirty = false;
   const onErr = () => { toast('Conexão com a base interrompida. Recarregue a página.'); };
   const day = 'dias/' + S.date;
-  S.unsub.push(S.db.doc(day).onSnapshot((snap) => {
-    const novo = snap.exists ? snap.data() : null;
-    let igual = false;
-    try { igual = JSON.stringify(S.prog || null) === JSON.stringify(novo || null); } catch (e) {}
-    S.prog = novo;
-    S.loaded.prog = true;
-    if (!igual) refresh();
-  }, onErr));
-  // Só redesenha quando os dados realmente mudaram (correção 11/11): o polling
-  // de segurança devolvia o mesmo conteúdo e forçava um render() inútil, o que
-  // fazia a tela piscar a cada minuto.
-  const col = (name, key) => S.unsub.push(S.db.collection(day + '/' + name).onSnapshot((q) => {
-    const novo = q.docs.map((d) => ({ id: d.id, ...d.data() }));
-    let igual = false;
-    try { igual = JSON.stringify(S[key] || []) === JSON.stringify(novo); } catch (e) {}
-    S[key] = novo;
-    if (!igual) refresh();
-  }, onErr));
+  S.unsub.push(S.db.doc(day).onSnapshot((snap) => { S.prog = snap.exists ? snap.data() : null; S.loaded.prog = true; refresh(); }, onErr));
+  const col = (name, key) => S.unsub.push(S.db.collection(day + '/' + name).onSnapshot((q) => { S[key] = q.docs.map((d) => ({ id: d.id, ...d.data() })); refresh(); }, onErr));
   col('apont', 'apont'); col('paradas', 'paradas'); col('chamados', 'chamados');
 }
 
@@ -2020,18 +2004,7 @@ window.addEventListener('hashchange', () => { readHash(); render(); });
 readHash();
 $('#f-date').value = S.date;
 render();
-// ATUALIZAÇÃO AUTOMÁTICA DAS TELAS (ajustado 11/11)
-// Era a cada 30s e chamava refresh() -> render() -> tuUpdate(), que reescreve a
-// matriz inteira do apontamento com innerHTML. Resultado: a tela "piscava" e o
-// operador perdia o foco do campo em que estava digitando.
-// Agora: 2 minutos, e a tela de APONTAMENTO não é mais redesenhada pelo timer
-// quando alguém está digitando — ela se atualiza pelos próprios lançamentos.
-const INTERVALO_REFRESH = 120000; // 2 min
-setInterval(() => {
-  if (!['geral', 'celula', 'gestao', 'pc'].includes(S.view)) return;
-  if (typing()) return; // nunca atrapalha quem está digitando
-  refresh(true);
-}, INTERVALO_REFRESH);
+setInterval(() => { if (['geral', 'celula', 'gestao', 'pc'].includes(S.view)) refresh(true); }, 30000);
 // ---------- base de dados (Supabase) com a mesma interface usada pelas telas ----------
 function makeDb(sb) {
   const MAP = { fimHora: 'fim_hora', resolvidoEm: 'resolvido_em', canceladoEm: 'cancelado_em' };
@@ -2067,11 +2040,7 @@ function makeDb(sb) {
     const soon = () => { clearTimeout(t); t = setTimeout(run, 250); };
     const [table, filter] = rtFor(p);
     const ch = sb.channel('rt-' + (++n) + '-' + table).on('postgres_changes', Object.assign({ event: '*', schema: 'public', table }, filter ? { filter } : {}), soon).subscribe();
-    // Polling de segurança do onSnapshot (ajustado 11/11): era 60s POR COLEÇÃO
-    // (4 coleções = 4 polls) e cada resposta chamava refresh() -> render(),
-    // redesenhando a matriz de apontamento inteira. O canal realtime já entrega
-    // as mudanças na hora; este poll é só rede de segurança, então pode ser raro.
-    const iv = setInterval(run, 180000); // 3 min
+    const iv = setInterval(run, 60000);
     run();
     return () => { alive = false; clearInterval(iv); clearTimeout(t); sb.removeChannel(ch); };
   }
