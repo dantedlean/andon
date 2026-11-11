@@ -1488,6 +1488,12 @@ function codDoProduto(cel, nome) {
 
 // Consolida o dia por produto (só apontamentos ativos) e envia ao painel.
 // Fire-and-forget: falha de rede NUNCA pode travar o apontamento do operador.
+// Estado da retentativa (declarado ANTES de ser usado por enviaApontamentosDoDia)
+let _envFalhou = false;
+let _envTentativas = 0;
+let _ultimoEnvio = '';
+const ESPERAS = [3000, 10000, 30000, 60000]; // backoff, em ms
+
 async function enviaApontamentosDoDia() {
   try {
     const dataIso = S.date;
@@ -1668,13 +1674,26 @@ async function enviaApontamentosDoDia() {
       });
     });
 
-    await fetch(APONT_API + '/backend/v1/compass2/apontamento-sync', {
+    // Sinaliza a versão do payload para a retentativa saber se houve mudança.
+    const corpo = JSON.stringify({ data: dataIso, itens: itens, lancamentos: lanc });
+    _ultimoEnvio = corpo;
+
+    const resp = await fetch(APONT_API + '/backend/v1/compass2/apontamento-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: dataIso, itens: itens, lancamentos: lanc }),
+      body: corpo,
     });
+    // FALHA EXPLÍCITA (correção 11/11): antes o fetch era "fire-and-forget" e uma
+    // resposta 500/401 passava como sucesso — o dado ficava no Supabase mas o
+    // painel nunca recebia (foi o caso do apontamento do Dante às 18:34).
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    _envFalhou = false;
+    _envTentativas = 0;
+    return true;
   } catch (e) {
-    // silencioso por desenho
+    // Repassa para a fila: é ela quem decide retentar.
+    _envFalhou = true;
+    throw e;
   }
 }
 // ── FILA DE ENVIO (correção 10/11, auditoria dos 3 apontamentos) ─────────────
@@ -1687,20 +1706,44 @@ async function enviaApontamentosDoDia() {
 // marca "tem novidade" e roda mais uma vez ao terminar, sempre com o estado final.
 let _envFila = Promise.resolve();
 let _envPendente = false;
-function enviaApontamentosSerializado() {
+// ── RETENTATIVA (11/11) ─────────────────────────────────────────────────────
+// Antes o envio engolia o erro: um 500/401 passava como sucesso e o apontamento
+// ficava só no Supabase — a Programação não subia e o Supermercado não recebia.
+// Agora a fila tenta de novo com espera crescente e, se todas falharem, avisa na
+// tela. E existe uma rede de segurança: mesmo sem apontamento novo, o resumo é
+// reenviado periodicamente enquanto houver falha — o dado nunca fica congelado.
+
+function enviaApontamentosSerializado(seNaoEnviado) {
   if (_envPendente) return _envFila; // já há um pedido na fila
   _envPendente = true;
   const rodar = async () => {
     _envPendente = false;
     try {
       await enviaApontamentosDoDia();
+      _envTentativas = 0;
     } catch (e) {
-      // silencioso, como o original
+      _envFalhou = true;
+      _envTentativas++;
+      const espera = ESPERAS[Math.min(_envTentativas - 1, ESPERAS.length - 1)];
+      try {
+        toast('Falha ao enviar o apontamento (tentativa ' + _envTentativas + '). Nova tentativa em ' + Math.round(espera / 1000) + 's.');
+      } catch (e2) {}
+      setTimeout(() => {
+        enviaApontamentosSerializado();
+      }, espera);
     }
   };
   _envFila = _envFila.then(rodar, rodar);
   return _envFila;
 }
+
+// REDE DE SEGURANÇA: a cada 2 min, se o último envio falhou, tenta de novo sozinho.
+// Cobre o caso em que ninguém lança mais nada no dia e o resumo ficou desatualizado.
+setInterval(function () {
+  if (!_envFalhou) return;
+  if (typeof typing === 'function' && typing()) return; // não atrapalha quem digita
+  enviaApontamentosSerializado();
+}, 120000);
 window.enviaApontamentosDoDia = enviaApontamentosSerializado;
 
 async function addApont(cel, faixa, produto, qtd, operador) {
