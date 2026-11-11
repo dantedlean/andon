@@ -2055,6 +2055,66 @@ document.addEventListener('change', async (ev) => {
   try { const r = await callFn({ action: 'status' }); S.temAdmin = !!r.temAdmin; } catch (e) { S.temAdmin = true; }
   S.authLoading = false; render();
 })();
+
+// ── ATUALIZAÇÃO AUTOMÁTICA (11/11) ──────────────────────────────────────────
+// O GitHub Pages manda cache-control: max-age=600. O operador deixa o Andon
+// aberto o dia inteiro, então podia ficar com uma versão velha por horas — foi
+// a causa de três incidentes (botão sumido, montagem:0 no Supermercado).
+// Aqui o app consulta `/andon/version.txt` a cada 2 min (com querystring nova,
+// que ignora o cache) e, se a versão mudou, recarrega sozinho.
+// TRAVA: nunca recarrega com alguém digitando (usa a typing() do próprio app),
+// e avisa 3s antes para a pessoa não ser pega de surpresa.
+(function () {
+  const VERSAO = '20261111-2'; // muda a cada publicação (junto com version.txt)
+  const ARQ = 'version.txt';
+  const INTERVALO = 120000; // 2 min
+  let avisando = false;
+
+  function aviso(txt) {
+    let d = document.getElementById('aviso-version');
+    if (!d) {
+      d = document.createElement('div');
+      d.id = 'aviso-version';
+      d.style.cssText =
+        'position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:99999;' +
+        'background:#0f172a;color:#fff;padding:12px 18px;border-radius:10px;' +
+        'font:600 14px/1.3 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.35)';
+      document.body.appendChild(d);
+    }
+    d.textContent = txt;
+  }
+
+  async function checa() {
+    if (avisando) return;
+    if (typeof typing === 'function' && typing()) return; // alguém digitando: espera
+    try {
+      const r = await fetch(ARQ + '?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const v = (await r.text()).trim();
+      if (!v || v === VERSAO) return;
+      avisando = true;
+      aviso('Nova versão disponível — atualizando em 3s…');
+      setTimeout(function () {
+        // confere outra vez: se passou a digitar nesse meio-tempo, adia
+        if (typeof typing === 'function' && typing()) {
+          avisando = false;
+          try { document.getElementById('aviso-version').remove(); } catch (e) {}
+          return;
+        }
+        location.reload();
+      }, 3000);
+    } catch (e) {
+      /* rede fora: tenta de novo no próximo ciclo */
+    }
+  }
+
+  setTimeout(checa, 15000); // primeira checagem depois de estabilizar
+  setInterval(checa, INTERVALO);
+  // ao voltar para a aba, confere na hora (cobre o caso do celular/PC dormindo)
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) checa();
+  });
+})();
 })();
 </script>
 </body>
