@@ -1562,10 +1562,36 @@ async function enviaApontamentosDoDia() {
       };
     });
 
+    // ── LISTA DE APONTAMENTOS INDIVIDUAIS (11/11, opção A) ──────────────────
+    // O resumo por produto (itens) continua sendo enviado: é ele que define a
+    // REALIZADA do dia. Mas o HISTÓRICO do Supermercado precisa de uma linha por
+    // lançamento (4 e 2, não 3 e 3). Aqui mandamos cada apontamento ativo das
+    // células de Montagem, com produto, quantidade e horário — o painel usa essa
+    // lista como fonte fiel do extrato.
+    const lanc = [];
+    ap.forEach((a) => {
+      if (!a || a.status === 'cancelado') return;
+      const celA = String(a.cel || '');
+      if (!(celA === String(idMontagemC) || celA === String(idMontagemV))) return;
+      const nomeA = String(a.produto || '').trim();
+      if (!nomeA) return;
+      const qA = +a.qtd || 0;
+      if (!(qA > 0)) return;
+      const cfgA = ((S.cfg && S.cfg.celulas) || []).find((x) => String(x.id) === celA) || {};
+      lanc.push({
+        nome: nomeA,
+        cod: codDoProduto(celA, nomeA),
+        qtd: qA,
+        cel: celA,
+        celNome: String(cfgA.nome || ''),
+        hora: String(a.criado || ''),
+      });
+    });
+
     await fetch(APONT_API + '/backend/v1/compass2/apontamento-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: dataIso, itens: itens }),
+      body: JSON.stringify({ data: dataIso, itens: itens, lancamentos: lanc }),
     });
   } catch (e) {
     // silencioso por desenho
