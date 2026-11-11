@@ -1671,6 +1671,18 @@ async function enviaApontamentosDoDia() {
         cel: celA,
         celNome: String(cfgA.nome || ''),
         hora: String(a.criado || ''),
+        // QUEM lançou (11/11, pedido Dlean): o apontamento guarda o id do usuário
+        // em `por`; o nome vem do mapa de perfis que o app já carrega.
+        quem: (() => {
+          try {
+            const uid = String(a.por || '');
+            if (!uid) return '';
+            const u = (S.perfisMap && S.perfisMap[uid]) || null;
+            return u ? String(u.nome || u.email || '') : '';
+          } catch (e) {
+            return '';
+          }
+        })(),
       });
     });
 
