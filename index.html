@@ -422,16 +422,49 @@ const PROG_API = 'https://painel-entregas-semanais-708f0.shrd00.internal.goskip.
 // Considera a celula como "Montagem" apenas quando o nome, normalizado, e exatamente
 // 'montagem' (aceita Montagem/MONTAGEM/montagem e acento). NAO aceita 'Montagem Final',
 // 'Pre-montagem' etc. — regra Dlean 10/11: so a celula Montagem tem o botao.
+// MONTAGEM (revisado 11/11): agora existem DUAS células de montagem —
+// "Montagem Curitiba" e "Montagem Vinhedo". A regra passou a aceitar:
+//   'Montagem' | 'Montagem Curitiba'  -> Montagem de CURITIBA
+//   'Montagem Vinhedo'                -> Montagem de VINHEDO
+// Continua RECUSANDO 'Montagem de roletes' (célula diferente, sem unidade).
+// A comparação é por PALAVRAS, não por texto solto: 'montagem' seguido apenas de
+// 'curitiba' ou 'vinhedo'. Assim nenhuma célula nova vira Montagem por acidente.
+function palavrasDaCelula(nome) {
+  return String(nome || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim()
+    .split(/\s+/).filter(Boolean);
+}
+function unidadeDaCelulaNome(nome) {
+  const w = palavrasDaCelula(nome);
+  return w.indexOf('vinhedo') >= 0 ? 'V' : 'C';
+}
 function ehCelulaMontagem(nome) {
-  const limpa = String(nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-  if (!/^[A-Za-z]+$/.test(limpa)) return false;
-  return limpa.toLowerCase() === 'montagem';
+  const w = palavrasDaCelula(nome);
+  if (!w.length || w[0] !== 'montagem') return false;
+  if (w.length === 1) return true;                       // 'Montagem'
+  if (w.length === 2) return w[1] === 'curitiba' || w[1] === 'vinhedo';
+  return false;                                          // 'Montagem de roletes' etc.
+}
+// Mantém a assinatura antiga (usada em outros pontos) e acrescenta a unidade.
+function montagemDaUnidade(u) {
+  const alvo = (u === 'V') ? 'V' : 'C';
+  const cells = (S.cfg && S.cfg.celulas) || [];
+  for (const c of cells) {
+    if (ehCelulaMontagem(c.nome) && unidadeDaCelulaNome(c.nome) === alvo) return c.id;
+  }
+  // compatibilidade: se ainda houver uma única 'Montagem' sem sufixo, ela serve
+  for (const c of cells) {
+    if (ehCelulaMontagem(c.nome) && unidadeDaCelulaNome(c.nome) === 'C' && alvo === 'C') return c.id;
+  }
+  return null;
 }
 
-function achaCelulaMontagem() {
-  const cells = (S.cfg && S.cfg.celulas) || [];
-  for (const c of cells) if (ehCelulaMontagem(c.nome)) return c.id;
-  return null;
+// Sem argumento: devolve a Montagem de CURITIBA (comportamento historico).
+// Com 'V' ou 'C': devolve a daquela unidade.
+function achaCelulaMontagem(unidade) {
+  if (unidade) return montagemDaUnidade(unidade);
+  return montagemDaUnidade('C');
 }
 
 // Distribui `total` nas faixas proporcional aos minutos, pelo MÉTODO DO MAIOR RESTO.
@@ -455,27 +488,44 @@ function distribuiNasFaixas(total, faixas) {
 }
 
 // Lê a programação publicada do dia (leitura pública, sem token).
-async function buscaProgramacaoDia(dataIso) {
+// unidade opcional: 'C' (padrão, comportamento histórico) ou 'V'.
+// A coleção publicada pelo painel guarda `local` em cada registro.
+async function buscaProgramacaoDia(dataIso, unidade) {
+  const u = (unidade === 'V') ? 'V' : 'C';
   const url = PROG_API + '/api/collections/programacao_dia/records?perPage=500&filter=' +
-    encodeURIComponent("data='" + dataIso + "'");
+    encodeURIComponent("data='" + dataIso + "' && local='" + u + "'");
   const r = await fetch(url, { headers: { Accept: 'application/json' } });
   if (!r.ok) throw new Error('falha ao consultar a programação (HTTP ' + r.status + ')');
   const d = await r.json();
-  return Array.isArray(d.items) ? d.items : [];
+  let itens = Array.isArray(d.items) ? d.items : [];
+  // DEFESA: se o registro vier sem `local` (publicação antiga), ele é de Curitiba.
+  if (!itens.length) {
+    const url2 = PROG_API + '/api/collections/programacao_dia/records?perPage=500&filter=' +
+      encodeURIComponent("data='" + dataIso + "'");
+    const r2 = await fetch(url2, { headers: { Accept: 'application/json' } });
+    if (r2.ok) {
+      const d2 = await r2.json();
+      itens = (Array.isArray(d2.items) ? d2.items : []).filter((x) => ((x.local || 'C') === u));
+    }
+  }
+  return itens;
 }
 
 async function buscarProgramacaoNaCelula(celId) {
   if (!S.draft) return toast('Abra a programação do dia primeiro.');
   const id = celId || achaCelulaMontagem();
   if (!id) return toast('Não encontrei a célula "Montagem". Verifique o nome no cadastro de células.');
+  // UNIDADE da célula (11/11): Montagem Vinhedo busca a programação de Vinhedo.
+  const _cfgCel = ((S.cfg && S.cfg.celulas) || []).find((x) => String(x.id) === String(id)) || {};
+  const _unidCel = unidadeDaCelulaNome(_cfgCel.nome || id);
 
   const dataIso = S.date;
   let itens;
-  try { itens = await buscaProgramacaoDia(dataIso); }
+  try { itens = await buscaProgramacaoDia(dataIso, _unidCel); }
   catch (e) { return toast('Não foi possível buscar: ' + (e.message || e)); }
 
   if (!itens.length) {
-    return toast('Não há programação publicada para ' + dateLabel(dataIso) + '. Programe o dia no painel Compass e clique de novo.');
+    return toast('Não há programação ' + (_unidCel === 'V' ? 'de VINHEDO ' : '') + 'publicada para ' + dateLabel(dataIso) + '. Programe o dia no painel Compass e clique de novo.');
   }
 
   const map = {};
@@ -1282,7 +1332,7 @@ function vProg() {
       (S.canEdit ? '<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap"><div class="field"><label for="mh-' + esc(c.id) + '">Preencher com meta/hora</label><input id="mh-' + esc(c.id) + '" class="inp" type="number" min="0" placeholder="ex.: 271"></div><button class="btn" type="button" data-fillmh="' + esc(c.id) + '">Aplicar (proporcional à duração)</button></div>' : '') +
       '<div class="metas">' + metas + '</div><span class="lbl">Produtos · “Pç/caixa” ativa os botões de caixa no PC da célula</span><div class="scroll"><div class="stack" style="gap:8px">' + (prods || '<span class="muted">Nenhum produto</span>') + '</div></div>' +
       (S.canEdit ? '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;align-self:flex-start;margin-top:2px">' +
-        (ehCelulaMontagem(c.nome) ? '<button class="btn" type="button" data-buscarprog="' + esc(c.id) + '">↯ Buscar programação</button>' : '') +
+        (ehCelulaMontagem(c.nome) ? '<button class="btn" type="button" data-buscarprog="' + esc(c.id) + '" data-progunid="' + esc(unidadeDaCelulaNome(c.nome)) + '">↯ Buscar programação' + (unidadeDaCelulaNome(c.nome) === 'V' ? ' (Vinhedo)' : '') + '</button>' : '') +
         '<button class="btn" type="button" data-ppadd="' + esc(c.id) + '">+ Produto</button>' +
         '<button class="btn pri" type="button" data-savecel="' + esc(c.id) + '">Salvar célula</button></div>' : '') + '</div>';
   }).join('');
@@ -1433,35 +1483,51 @@ async function enviaApontamentosDoDia() {
     // células e o próprio dia (S.prog.cells), que é quem realmente tem os
     // produtos. Sem esse fallback, somaMont ficava vazio e o painel recebia
     // montagem:0 — foi o que aconteceu no teste do BTCP-0004 em 10/11 19:32.
-    const idMontagem = (() => {
+    // DUAS MONTAGENS (11/11): agora existe "Montagem Curitiba" e "Montagem Vinhedo".
+    // Precisamos dos IDs das duas — o apontamento de cada uma alimenta a sua unidade.
+    function achaMontagemPorUnidade(u) {
+      const alvo = (u === 'V') ? 'V' : 'C';
       try {
-        const idCfg = achaCelulaMontagem();
-        if (idCfg) return idCfg;
-      } catch (e) {}
-      try {
-        // fallback: procura a célula cujo NOME é "Montagem" no cadastro do dia
         const dc = (S.prog && S.prog.cells) || {};
         const cfgs = (S.cfg && S.cfg.celulas) || [];
-        for (const c of cfgs) if (ehCelulaMontagem(c.nome) && dc[c.id]) return c.id;
-        for (const k of Object.keys(dc)) if (ehCelulaMontagem(k)) return k;
+        // 1) célula cadastrada cujo nome é Montagem/Curitiba/Vinhedo e existe no dia
+        for (const c of cfgs) {
+          if (ehCelulaMontagem(c.nome) && unidadeDaCelulaNome(c.nome) === alvo && dc[c.id]) return c.id;
+        }
+        // 2) mesmo sem existir no dia, vale o cadastro (o apontamento pode chegar antes)
+        for (const c of cfgs) {
+          if (ehCelulaMontagem(c.nome) && unidadeDaCelulaNome(c.nome) === alvo) return c.id;
+        }
+        // 3) fallback por id normalizado (quando a célula sumiu do cadastro)
+        for (const k of Object.keys(dc)) if (ehCelulaMontagem(k) && unidadeDaCelulaNome(k) === alvo) return k;
       } catch (e) {}
       return null;
-    })();
+    }
+    const idMontagemC = achaMontagemPorUnidade('C');
+    const idMontagemV = achaMontagemPorUnidade('V');
+    // compatibilidade: o restante do código usa `idMontagem` para Curitiba
+    const idMontagem = idMontagemC;
+    // DUAS MONTAGENS: soma separada por unidade. `montagem` continua sendo a de
+    // Curitiba (compatibilidade com o painel) e `montagemV` é a de Vinhedo.
     const somaMont = {};
+    const somaMontV = {};
     // Sem idMontagem, NÃO somar nada: melhor faltar do que inflar o estoque de
     // prontos com apontamento de outra célula. O painel também recebe `cel` por
     // item e repete a checagem do lado de lá.
-    if (idMontagem) {
+    const somaDaCelula = (idCel, alvo) => {
+      if (!idCel) return;
       ap.forEach((a) => {
         if (!a || a.status === 'cancelado') return;
-        if (String(a.cel || '') !== String(idMontagem)) return;
+        if (String(a.cel || '') !== String(idCel)) return;
         const nome = String(a.produto || '').trim();
         if (!nome) return;
         const q = +a.qtd || 0;
         if (!(q > 0)) return;
-        somaMont[nome] = (somaMont[nome] || 0) + q;
+        alvo[nome] = (alvo[nome] || 0) + q;
       });
-    }
+    };
+    somaDaCelula(idMontagemC, somaMont);
+    somaDaCelula(idMontagemV, somaMontV);
 
     const itens = Object.keys(todos).map((nome) => {
       // O registro de referência deve ser o da MONTAGEM quando existir: o mesmo
@@ -1478,6 +1544,8 @@ async function enviaApontamentosDoDia() {
         qtd: soma[nome] || 0,
         // parcela exclusiva da Montagem -> fonte do Supermercado (produtos acabados)
         montagem: somaMont[nome] || 0,
+        // parcela da Montagem de VINHEDO (11/11) — o painel usa para a unidade V
+        montagemV: somaMontV[nome] || 0,
         // célula do registro: o painel confere do lado dele em vez de confiar.
         // `celNome` é o que decide (o hook roda em outro banco e não vê o cadastro
         // de células daqui) — nome exato "Montagem", sem acento/caixa.
