@@ -383,6 +383,9 @@ const S = {
   db: null, user: null, downloads: null, canEdit: false, uid: null,
   date: ymd(new Date()), view: 'geral', cel: store.get('andon.cel'), pcCel: null,
   cfg: null, prog: null, apont: [], paradas: [], chamados: [], dias: [],
+  // codPorNome: índice nome->código da programação publicada (fallback do
+  // codDoProduto quando a célula está sem cod). Carregado em carregaIndiceCodigos.
+  codPorNome: null, indiceDia: null,
   loaded: { cfg: false, prog: false }, unsub: [],
   pc: { faixa: null, prod: null, outro: '', qtd: '', lastCur: null, dismiss: {}, he: false, heIni: '', heFim: '' },
   tu: { faixa: null, vals: {}, outros: {}, op: '', he: false, heIni: '', heFim: '' },
@@ -1478,11 +1481,35 @@ function toast(msg, action) {
 const APONT_API = 'https://painel-entregas-semanais-708f0.shrd00.internal.goskip.dev';
 
 // O código do produto vem do botão de programação e fica no produto da célula.
+// ÍNDICE nome -> código, montado da programação PUBLICADA do dia.
+// POR QUE EXISTE (11/11, causa raiz definitiva): o campo `cod` do produto na
+// célula só é preenchido pelo botão "Buscar programação". Quando a célula é
+// preenchida à mão (ou recriada), os produtos ficam SEM código — o apontamento
+// chega ao painel com cod="" e é descartado como "fora da programação". A
+// REALIZADA subia e o Supermercado não recebia nada.
+// Aqui o app mantém um índice independente da célula: se o produto não tiver cod,
+// buscamos pelo NOME na programação publicada. Não depende de ninguém clicar.
+function montaIndiceCodigos(itens) {
+  const idx = { C: {}, V: {} };
+  (itens || []).forEach((x) => {
+    const cod = String(x.cod || '').trim();
+    if (!cod) return;
+    const u = (String(x.local || 'C').trim() === 'V') ? 'V' : 'C';
+    const desc = String(x.desc || '').trim();
+    if (desc) idx[u][norm(desc)] = cod;
+    idx[u][norm(cod)] = cod;
+  });
+  return idx;
+}
 function codDoProduto(cel, nome) {
   try {
     const cp = (S.prog && S.prog.cells && S.prog.cells[cel]) || {};
     const p = (cp.produtos || []).find((x) => norm(x.nome) === norm(nome));
-    return p && p.cod ? String(p.cod) : '';
+    if (p && p.cod) return String(p.cod);
+    // FALLBACK: índice da programação publicada, por unidade da célula
+    const u = unidadeDaCelulaNome((((S.cfg && S.cfg.celulas) || []).find((c) => String(c.id) === String(cel)) || {}).nome || cel);
+    const idx = (S.codPorNome && S.codPorNome[u]) || {};
+    return idx[norm(nome)] || '';
   } catch (e) { return ''; }
 }
 
@@ -1880,7 +1907,31 @@ function subscribe() {
   S.unsub.push(S.db.doc(day).onSnapshot((snap) => { S.prog = snap.exists ? snap.data() : null; S.loaded.prog = true; refresh(); }, onErr));
   const col = (name, key) => S.unsub.push(S.db.collection(day + '/' + name).onSnapshot((q) => { S[key] = q.docs.map((d) => ({ id: d.id, ...d.data() })); refresh(); }, onErr));
   col('apont', 'apont'); col('paradas', 'paradas'); col('chamados', 'chamados');
+
+  // ÍNDICE DE CÓDIGOS (11/11): carrega a programação publicada assim que o dia
+  // entra, para o apontamento nunca depender de alguém clicar em "Buscar
+  // programação" na célula. Roda em segundo plano e não bloqueia a tela.
+  carregaIndiceCodigos(S.date);
 }
+
+// Busca a programação publicada (API do painel) e monta S.codPorNome.
+// Silencioso: se a rede falhar, o app continua funcionando como antes.
+async function carregaIndiceCodigos(dataIso) {
+  try {
+    if (!dataIso) return;
+    const r = await fetch(PROG_API + '/api/collections/programacao_dia/records?perPage=500&filter=' +
+      encodeURIComponent("data='" + dataIso + "'"), { headers: { Accept: 'application/json' } });
+    if (!r.ok) return;
+    const d = await r.json();
+    const itens = Array.isArray(d.items) ? d.items : [];
+    if (!itens.length) return;
+    S.codPorNome = montaIndiceCodigos(itens);
+    S.indiceDia = dataIso;
+  } catch (e) {
+    /* rede fora: mantém o comportamento anterior */
+  }
+}
+window.carregaIndiceCodigos = carregaIndiceCodigos;
 
 // ---------- eventos ----------
 document.addEventListener('click', async (ev) => {
