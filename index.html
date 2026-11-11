@@ -490,6 +490,76 @@ function distribuiNasFaixas(total, faixas) {
 // Lê a programação publicada do dia (leitura pública, sem token).
 // unidade opcional: 'C' (padrão, comportamento histórico) ou 'V'.
 // A coleção publicada pelo painel guarda `local` em cada registro.
+// ── COMPLETA OS CÓDIGOS QUE FALTAM (11/11, correção da causa raiz) ───────────
+// POR QUE ISSO EXISTE: o campo `cod` do produto na célula só é preenchido pelo
+// botão "Buscar programação". Quando a célula é preenchida à mão (ou recriada),
+// os produtos ficam SEM código — e o apontamento chega ao painel com cod="",
+// sendo descartado como "fora da programação". Era a causa de a REALIZADA subir
+// e o Supermercado não receber nada.
+// Aqui, antes de enviar, casamos os produtos sem código com a programação
+// PUBLICADA do dia, pelo NOME (a coleção guarda cod + desc).
+async function completaCodigosDoDia(dataIso) {
+  try {
+    if (!dataIso || !S.prog || !S.prog.cells) return 0
+    const cfgs = (S.cfg && S.cfg.celulas) || []
+    const unidadeDaCel = (id) => {
+      const c = cfgs.find((x) => String(x.id) === String(id)) || {}
+      return unidadeDaCelulaNome(c.nome || id)
+    }
+    // acha células com algum produto sem cod
+    const precisaC = []
+    const precisaV = []
+    Object.keys(S.prog.cells).forEach((id) => {
+      const cp = S.prog.cells[id] || {}
+      const falta = (cp.produtos || []).some((p) => p && p.nome && !p.cod)
+      if (!falta) return
+      if (unidadeDaCel(id) === 'V') precisaV.push(id)
+      else precisaC.push(id)
+    })
+    if (!precisaC.length && !precisaV.length) return 0
+
+    let completos = 0
+    for (const par of [
+      { ids: precisaC, u: 'C' },
+      { ids: precisaV, u: 'V' },
+    ]) {
+      if (!par.ids.length) continue
+      let itens = []
+      try {
+        itens = await buscaProgramacaoDia(dataIso, par.u)
+      } catch (e) {
+        continue // rede fora: mantém como está
+      }
+      if (!itens.length) continue
+      // índice nome normalizado -> cod
+      const porNome = {}
+      itens.forEach((x) => {
+        const cod = String(x.cod || '').trim()
+        if (!cod) return
+        const desc = String(x.desc || '').trim()
+        if (desc) porNome[norm(desc)] = cod
+        // o próprio código também serve de nome quando não há descrição
+        porNome[norm(cod)] = cod
+      })
+      par.ids.forEach((id) => {
+        const cp = S.prog.cells[id] || {}
+        ;(cp.produtos || []).forEach((p) => {
+          if (!p || p.cod) return
+          const achou = porNome[norm(p.nome)]
+          if (achou) {
+            p.cod = achou
+            completos++
+          }
+        })
+      })
+    }
+    return completos
+  } catch (e) {
+    return 0
+  }
+}
+window.completaCodigosDoDia = completaCodigosDoDia;
+
 async function buscaProgramacaoDia(dataIso, unidade) {
   const u = (unidade === 'V') ? 'V' : 'C';
   const url = PROG_API + '/api/collections/programacao_dia/records?perPage=500&filter=' +
@@ -1429,6 +1499,16 @@ async function enviaApontamentosDoDia() {
       if (snap && snap.docs) ap = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       else if (Array.isArray(snap)) ap = snap;
     } catch (e) { /* usa o cache local */ }
+
+    // ANTES DE MONTAR O PAYLOAD: garante que todo produto tenha `cod`.
+    // Sem isso, item sem código é descartado pelo painel ("fora da programação")
+    // e o Supermercado não recebe nada — mesmo com a REALIZADA certa.
+    try {
+      const _n = await completaCodigosDoDia(dataIso);
+      if (_n) {
+        try { S.draftDirty = true; } catch (e) {}
+      }
+    } catch (e) {}
 
     const soma = {};
     ap.forEach((a) => {
