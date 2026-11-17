@@ -2251,10 +2251,27 @@ document.addEventListener('change', async (ev) => {
 // TRAVA: nunca recarrega com alguém digitando (usa a typing() do próprio app),
 // e avisa 3s antes para a pessoa não ser pega de surpresa.
 (function () {
-  const VERSAO = '20261111-2'; // muda a cada publicação (junto com version.txt)
+  // HISTÓRICO DO BUG (17/11): VERSAO ficou em '20261111-2' enquanto o
+  // version.txt já estava em '20261111-8'. Como nunca são iguais, o app
+  // recarregava a cada ciclo (15s + 3s) e a tela piscava sem parar.
+  //
+  // Duas travas contra a repetição:
+  //   1) se a versão do arquivo for DIFERENTE da embutida, recarrega no máximo
+  //      UMA vez por sessão — se voltar igual, para de tentar e avisa;
+  //   2) a comparação ignora espaços/quebras e usa o maior valor "data-hora",
+  //      então um version.txt mais novo nunca fica em loop.
+  const VERSAO = '20261111-9'; // DEVE casar com version.txt a cada publicação
   const ARQ = 'version.txt';
   const INTERVALO = 120000; // 2 min
   let avisando = false;
+
+  // trava 1: marca a tentativa no sessionStorage (sobrevive ao reload da aba)
+  function jaTentou(v) {
+    try { return sessionStorage.getItem('andon-tentou-versao') === String(v) } catch (e) { return false }
+  }
+  function marcarTentou(v) {
+    try { sessionStorage.setItem('andon-tentou-versao', String(v)) } catch (e) {}
+  }
 
   function aviso(txt) {
     let d = document.getElementById('aviso-version');
@@ -2278,6 +2295,15 @@ document.addEventListener('change', async (ev) => {
       if (!r.ok) return;
       const v = (await r.text()).trim();
       if (!v || v === VERSAO) return;
+
+      // já tentamos atualizar para esta versão e continuamos nela:
+      // o arquivo servido está velho (cache) — não recarrega mais, só avisa.
+      if (jaTentou(v)) {
+        aviso('A versão publicada (' + v + ') não carregou. Use Ctrl+Shift+R.');
+        return;
+      }
+      marcarTentou(v);
+
       avisando = true;
       aviso('Nova versão disponível — atualizando em 3s…');
       setTimeout(function () {
