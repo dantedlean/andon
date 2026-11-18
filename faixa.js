@@ -44,6 +44,10 @@
   ]
 
   var _dados = null
+  // POPUP (pedido André 18/11): dispara quando ENTRA UMA NOVA FAIXA (a hora
+  // virou) e existe pendência. Não repete a mesma faixa: guarda a última que
+  // já avisou, por máquina.
+  var _ultimaFaixaAvisada = ''
   var _timer = null
   var _dispensadas = {} // por máquina: chave -> true
 
@@ -195,7 +199,10 @@
     // Banner GENÉRICO (pedido André 18/11): uma linha, sem listar tudo.
     // O detalhe só aparece ao clicar em "Ver".
     var botaoDispensar = bloqueia
-      ? '<span style="font-size:11.5px;opacity:.9">Você é responsável: só sai lançando</span>'
+      ? '<span style="font-size:11.5px;opacity:.92;background:rgba(255,255,255,.16);' +
+        'padding:5px 10px;border-radius:6px">' +
+        'Você responde por estas faixas — lance o apontamento ou marque o motivo' +
+        '</span>'
       : '<button id="faixaDispensar" style="background:rgba(255,255,255,.18);color:#fff;' +
         'border:1px solid rgba(255,255,255,.55);border-radius:7px;padding:7px 14px;' +
         'font-weight:700;font-size:12.5px;cursor:pointer">Dispensar</button>'
@@ -224,6 +231,93 @@
         visiveis.forEach(function (p) { _dispensadas[chave(p)] = true })
         render()
       }
+    }
+
+    // popup quando a hora virou e há pendência para quem responde
+    talvezAvisar(visiveis)
+  }
+
+  // ── POPUP de faixa nova (pedido André 18/11) ───────────────────────────────
+  // Aparece quando a hora vira e existe pendência para quem responde.
+  // É um alerta, não um bloqueio: tem botão de fechar e o banner continua no topo.
+  function abrirPopup(minhas, faixa) {
+    var velho = document.getElementById('faixaPopup')
+    if (velho) velho.parentNode.removeChild(velho)
+
+    var m = document.createElement('div')
+    m.id = 'faixaPopup'
+    m.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:99994',
+      'background:rgba(0,0,0,.55)', 'display:flex',
+      'align-items:center', 'justify-content:center', 'padding:18px',
+    ].join(';')
+
+    var itens = minhas
+      .slice(0, 10)
+      .map(function (p) {
+        return (
+          '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;' +
+          'border-bottom:1px solid #e5e7eb">' +
+          '  <span style="flex:1;font-size:13px;color:#111827"><b>' + esc(p.celula_nome) +
+          '</b><span style="color:#6b7280"> · ' + esc(p.faixa_ini) + '–' + esc(p.faixa_fim) +
+          '</span></span>' +
+          '  <button data-pm="' + esc(chave(p)) + '" style="background:#991b1b;color:#fff;' +
+          'border:0;border-radius:6px;padding:7px 12px;font-weight:800;font-size:12px;' +
+          'cursor:pointer;white-space:nowrap">Informar motivo</button>' +
+          '</div>'
+        )
+      })
+      .join('')
+
+    var resto =
+      minhas.length > 10
+        ? '<div style="padding:8px 12px;font-size:12px;color:#6b7280">+ ' +
+          (minhas.length - 10) + ' outras</div>'
+        : ''
+
+    m.innerHTML =
+      '<div style="background:#fff;border-radius:14px;max-width:600px;width:100%;' +
+      'font-family:inherit;max-height:88vh;display:flex;flex-direction:column;' +
+      'box-shadow:0 18px 50px rgba(0,0,0,.4)">' +
+      '  <div style="padding:18px 20px 14px;border-bottom:1px solid #e5e7eb;' +
+      'background:#fef2f2;border-radius:14px 14px 0 0">' +
+      '    <div style="display:flex;align-items:center;gap:10px">' +
+      '      <span style="font-size:22px">⚠️</span>' +
+      '      <div>' +
+      '        <div style="font-size:16px;font-weight:800;color:#991b1b">Nova faixa · ' +
+      esc(faixa.replace('-', '–')) + '</div>' +
+      '        <div style="font-size:12.5px;color:#7f1d1d;margin-top:2px">' +
+      minhas.length + (minhas.length === 1 ? ' faixa sem apontamento' : ' faixas sem apontamento') +
+      ' na sua célula</div>' +
+      '      </div>' +
+      '    </div>' +
+      '  </div>' +
+      '  <div style="overflow:auto">' + itens + resto + '</div>' +
+      '  <div style="padding:12px 20px;text-align:right;border-top:1px solid #e5e7eb">' +
+      '    <button id="faixaPopupOk" style="background:#f3f4f6;color:#374151;border:0;' +
+      'border-radius:8px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer">' +
+      'Agora não</button>' +
+      '  </div>' +
+      '</div>'
+
+    document.body.appendChild(m)
+
+    document.getElementById('faixaPopupOk').onclick = function () {
+      m.parentNode.removeChild(m)
+    }
+
+    var bs = m.querySelectorAll('[data-pm]')
+    for (var i = 0; i < bs.length; i++) {
+      bs[i].onclick = (function (btn) {
+        return function () {
+          var k = btn.getAttribute('data-pm')
+          var alvo = null
+          for (var j = 0; j < minhas.length; j++) {
+            if (chave(minhas[j]) === k) { alvo = minhas[j]; break }
+          }
+          if (alvo) abrirMotivos(alvo, m)
+        }
+      })(bs[i])
     }
   }
 
@@ -422,6 +516,54 @@
           if (b) b.textContent = 'Erro: ' + e.message
         }
       })
+  }
+
+  // Qual faixa está correndo agora (a primeira cujo fim ainda não passou).
+  // Serve para saber quando "a hora virou".
+  function faixasDoDia() {
+    return (_dados && _dados.faixas) || []
+  }
+
+  function faixaCorrente() {
+    var lista = faixasDoDia()
+    var d = new Date(Date.now() - 10800000)
+    var agora = d.getUTCHours() * 60 + d.getUTCMinutes()
+    function toMin(t) {
+      var p = String(t || '').split(':')
+      if (p.length < 2) return NaN
+      return parseInt(p[0], 10) * 60 + parseInt(p[1], 10)
+    }
+    for (var i = 0; i < lista.length; i++) {
+      var ini = toMin(lista[i].ini)
+      var fim = toMin(lista[i].fim)
+      if (isNaN(ini) || isNaN(fim)) continue
+      if (agora >= ini && agora < fim) return String(lista[i].ini) + '-' + String(lista[i].fim)
+    }
+    return ''
+  }
+
+  // marca d'água da faixa: muda quando a hora vira
+  function chaveDaFaixaAtual() {
+    var fc = faixaCorrente()
+    if (fc) return fc
+    // fora de qualquer faixa (almoço/fim do dia): usa a hora cheia
+    var d = new Date(Date.now() - 10800000)
+    return 'h' + d.getUTCHours()
+  }
+
+  function talvezAvisar(visiveis) {
+    if (!visiveis || !visiveis.length) return
+    var faixa = chaveDaFaixaAtual()
+    if (!faixa) return
+    if (_ultimaFaixaAvisada === faixa) return // já avisou nesta faixa
+    // só avisa quem tem pendência a resolver (responsável)
+    var minhas = visiveis.filter(souResponsavel)
+    if (!minhas.length) {
+      _ultimaFaixaAvisada = faixa
+      return
+    }
+    _ultimaFaixaAvisada = faixa
+    abrirPopup(minhas, faixa)
   }
 
   function buscar() {
