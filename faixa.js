@@ -26,7 +26,7 @@
   'use strict'
 
   var BANNER_ID = 'faixaPendBanner'
-  var CORTE = '2026-11-18' // vigência (decisão André 18/11)
+  var CORTE = '2026-11-19' // vigência (decisão André 18/11)
   var API = 'https://painel-entregas-semanais-708f0.shrd00.internal.goskip.dev'
   var INTERVALO = 60000 // 1 min: barato e suficiente para "hora virou"
 
@@ -551,8 +551,18 @@
     return 'h' + d.getUTCHours()
   }
 
+  // O popup só avisa até as 17h (decisão André 18/11): depois disso não há mais
+  // o que corrigir no dia. O BANNER continua aparecendo o tempo todo.
+  var LIMITE_POPUP_MIN = 17 * 60
+
   function talvezAvisar(visiveis) {
     if (!visiveis || !visiveis.length) return
+    // fora do horário de aviso: só marca como visto, sem abrir popup
+    var agoraD = new Date(Date.now() - 10800000)
+    if (agoraD.getUTCHours() * 60 + agoraD.getUTCMinutes() >= LIMITE_POPUP_MIN) {
+      _ultimaFaixaAvisada = chaveDaFaixaAtual()
+      return
+    }
     var faixa = chaveDaFaixaAtual()
     if (!faixa) return
     if (_ultimaFaixaAvisada === faixa) return // já avisou nesta faixa
