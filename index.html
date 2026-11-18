@@ -1751,6 +1751,39 @@ async function enviaApontamentosDoDia() {
       });
     });
 
+    // ── CONFIGURAÇÃO DO DIA (faixas + metas por célula) — 18/11 T2 ───────────
+    // O alerta de faixa pendente precisa saber quais faixas existem, quais
+    // células estão ATIVAS no dia e qual a meta de cada faixa. Isso vive no
+    // Supabase do Andon (tabela `dias`); o Skip não tem essa tabela. Então o
+    // app envia junto — é a fonte que ele já usa para desenhar a tela.
+    // ADITIVO: campo novo, ninguém depende dele antes do alerta existir.
+    const configDia = (() => {
+      try {
+        // Fonte: S.prog é o documento 'dias/{data}' que o app já carrega e usa
+        // para desenhar a tela (faixas + cells com ativa/metas/produtos).
+        const dc = S.prog
+        if (!dc) return null
+        const faixasDia = (typeof fxOf === 'function' ? fxOf(dc) : dc.faixas) || FAIXAS_PADRAO
+        return {
+          faixas: faixasDia.map((f) => ({ ini: String(f.ini || ''), fim: String(f.fim || '') })),
+          cells: Object.keys(dc.cells || {}).reduce((acc, id) => {
+            const c = dc.cells[id] || {}
+            acc[id] = {
+              ativa: c.ativa !== false,
+              metas: Array.isArray(c.metas) ? c.metas.map((m) => +m || 0) : [],
+              nome: (() => {
+                try {
+                  const cf = ((S.cfg && S.cfg.celulas) || []).find((x) => String(x.id) === String(id))
+                  return cf ? String(cf.nome || '') : ''
+                } catch (e) { return '' }
+              })(),
+            }
+            return acc
+          }, {}),
+        }
+      } catch (e) { return null }
+    })();
+
     // Sinaliza a versão do payload para a retentativa saber se houve mudança.
     const corpo = JSON.stringify({
       data: dataIso,
@@ -1759,6 +1792,8 @@ async function enviaApontamentosDoDia() {
       // array NOVO, só para a tabela real de apontamentos; o Supermercado
       // continua lendo `lancamentos` e nada nele mudou.
       apontamentosDia: apontamentosDia,
+      // configuração do dia (faixas + metas + ativa), para o alerta de faixa
+      configDia: configDia,
     });
     _ultimoEnvio = corpo;
 
@@ -2305,7 +2340,7 @@ document.addEventListener('change', async (ev) => {
   //      UMA vez por sessão — se voltar igual, para de tentar e avisa;
   //   2) a comparação ignora espaços/quebras e usa o maior valor "data-hora",
   //      então um version.txt mais novo nunca fica em loop.
-  const VERSAO = '20261118-1'; // DEVE casar com version.txt a cada publicação
+  const VERSAO = '20261118-2'; // DEVE casar com version.txt a cada publicação
   const ARQ = 'version.txt';
   const INTERVALO = 120000; // 2 min
   let avisando = false;
