@@ -26,7 +26,7 @@
   'use strict'
 
   var BANNER_ID = 'faixaPendBanner'
-  var CORTE = '2026-11-18' // TESTE — volta para 2026-11-19 (decisão André 18/11)
+  var CORTE = '2026-11-18' // vigência (decisão André 18/11)
   var API = 'https://painel-entregas-semanais-708f0.shrd00.internal.goskip.dev'
   var INTERVALO = 60000 // 1 min: barato e suficiente para "hora virou"
 
@@ -64,21 +64,40 @@
     return p.dia + '|' + p.celula + '|' + p.faixa_ini + '|' + p.faixa_fim
   }
 
-  // Quem é o usuário logado (o Andon guarda o id em S.uid e o perfil em S.perfil)
-  function eu() {
+  // Quem é o usuário logado.
+  // IMPORTANTE (correção 18/11): o app inteiro vive dentro de uma IIFE, então
+  // `S` NÃO é global — o banner não consegue ler S.uid. A sessão, porém, fica
+  // no localStorage (Supabase persiste ali). Lemos dela.
+  var SB_URL = 'https://pntmmydzxbdxjtyglwlh.supabase.co'
+  var SB_KEY = 'sb_publishable_HrKp9FJkJHSOkKR3BLHjdw_-09h_KxF'
+  var _eu = null
+
+  function lerSessao() {
     try {
-      var u = (typeof S !== 'undefined' && S) || null
-      if (!u) return { id: '', email: '', nome: '' }
-      var uid = String(u.uid || '')
-      var perfil = u.perfil || null
-      return {
-        id: uid,
-        email: String((perfil && perfil.email) || ''),
-        nome: String((perfil && perfil.nome) || ''),
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i)
+        if (!k || k.indexOf('sb-') !== 0 || k.indexOf('auth-token') < 0) continue
+        var raw = localStorage.getItem(k)
+        if (!raw) continue
+        var o = JSON.parse(raw)
+        var s = o && (o.currentSession || o.session || o)
+        if (s && s.access_token) return s
       }
-    } catch (e) {
-      return { id: '', email: '', nome: '' }
+    } catch (e) {}
+    return null
+  }
+
+  function eu() {
+    var s = lerSessao()
+    if (!s || !s.access_token) return { id: '', email: '', nome: '', token: '' }
+    var email = String((s.user && s.user.email) || '')
+    _eu = {
+      id: String((s.user && s.user.id) || ''),
+      email: email,
+      nome: email.split('@')[0],
+      token: String(s.access_token),
     }
+    return _eu
   }
 
   // responsável = o e-mail do usuário está na lista daquela célula
@@ -389,16 +408,13 @@
   }
 
   function iniciar() {
-    // espera o app existir (S.uid)
+    // Espera haver sessão (o app já logou). Não dependemos de `S`: ele é local
+    // à IIFE do app. A sessão aparece no localStorage quando o login acontece.
     var tentativas = 0
     function tenta() {
-      try {
-        if (typeof S === 'undefined' || !S || !S.uid) {
-          if (++tentativas > 120) return // ~1 min e desiste
-          return setTimeout(tenta, 500)
-        }
-      } catch (e) {
-        if (++tentativas > 120) return
+      var s = lerSessao()
+      if (!s) {
+        if (++tentativas > 240) return // ~2 min: desiste sem atrapalhar
         return setTimeout(tenta, 500)
       }
       buscar()
