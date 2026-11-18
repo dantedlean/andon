@@ -158,6 +158,9 @@
       return
     }
 
+    // Bloqueio POR FAIXA (correção 18/11): o Marcos é responsável só de
+    // Montagem Curitiba — ele NÃO pode dispensar a faixa do Corte laser, mas
+    // também não fica preso a ela. Cada linha decide sozinha.
     var bloqueia = visiveis.some(souResponsavel)
     var linhas = visiveis
       .slice(0, 12)
@@ -175,9 +178,11 @@
           '<span style="opacity:.9;font-size:12px">' + esc(p.faixa_ini) + '–' + esc(p.faixa_fim) + '</span>' +
           '<span style="opacity:.8;font-size:11.5px">' + realTxt + ' / ' + p.meta + '</span>' +
           '<span style="flex:1"></span>' +
-          '<button data-just="' + esc(chave(p)) + '" style="background:#fff;color:#991b1b;' +
-          'border:0;border-radius:6px;padding:5px 12px;font-weight:800;font-size:12px;cursor:pointer">' +
-          'Justificar</button>' +
+          (souResponsavel(p)
+            ? '<button data-just="' + esc(chave(p)) + '" style="background:#fff;color:#991b1b;' +
+              'border:0;border-radius:6px;padding:5px 12px;font-weight:800;font-size:12px;cursor:pointer">' +
+              'Justificar</button>'
+            : '<span style="font-size:11px;opacity:.85;margin-right:6px">' + esc(resp) + '</span>') +
           '</div>'
         )
       })
