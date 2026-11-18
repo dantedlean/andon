@@ -1713,8 +1713,53 @@ async function enviaApontamentosDoDia() {
       });
     });
 
+    // ── APONTAMENTOS DO DIA — TODAS AS CÉLULAS (18/11, T2) ───────────────────
+    // POR QUE EXISTE: `lanc` acima só leva Montagem, porque nasceu para o
+    // histórico do Supermercado (produto acabado). O alerta de lançamento
+    // pendente precisa de TODAS as células — e hoje 11 de 12 apontamentos do dia
+    // ficavam de fora (L1, L2, L3, Trilho...).
+    //
+    // É ADITIVO: nada acima mudou e `lanc` continua sendo enviado igual.
+    // Se este bloco for removido, o app volta exatamente ao comportamento antigo.
+    const apontamentosDia = [];
+    ap.forEach((a) => {
+      if (!a || a.status === 'cancelado') return;
+      const celA = String(a.cel || '');
+      if (!celA) return;
+      const nomeA = String(a.produto || '').trim();
+      if (!nomeA) return;
+      const qA = +a.qtd || 0;
+      if (!(qA > 0)) return;
+      const cfgA = ((S.cfg && S.cfg.celulas) || []).find((x) => String(x.id) === celA) || {};
+      apontamentosDia.push({
+        nome: nomeA,
+        cod: codDoProduto(celA, nomeA),
+        qtd: qA,
+        cel: celA,
+        celNome: String(cfgA.nome || ''),
+        hora: String(a.criado || ''),
+        quem: (() => {
+          try {
+            const uid = String(a.por || '');
+            if (!uid) return '';
+            const u = (S.perfisMap && S.perfisMap[uid]) || null;
+            return u ? String(u.nome || u.email || '') : '';
+          } catch (e) {
+            return '';
+          }
+        })(),
+      });
+    });
+
     // Sinaliza a versão do payload para a retentativa saber se houve mudança.
-    const corpo = JSON.stringify({ data: dataIso, itens: itens, lancamentos: lanc });
+    const corpo = JSON.stringify({
+      data: dataIso,
+      itens: itens,
+      lancamentos: lanc,
+      // array NOVO, só para a tabela real de apontamentos; o Supermercado
+      // continua lendo `lancamentos` e nada nele mudou.
+      apontamentosDia: apontamentosDia,
+    });
     _ultimoEnvio = corpo;
 
     const resp = await fetch(APONT_API + '/backend/v1/compass2/apontamento-sync', {
@@ -2260,7 +2305,7 @@ document.addEventListener('change', async (ev) => {
   //      UMA vez por sessão — se voltar igual, para de tentar e avisa;
   //   2) a comparação ignora espaços/quebras e usa o maior valor "data-hora",
   //      então um version.txt mais novo nunca fica em loop.
-  const VERSAO = '20261111-9'; // DEVE casar com version.txt a cada publicação
+  const VERSAO = '20261118-1'; // DEVE casar com version.txt a cada publicação
   const ARQ = 'version.txt';
   const INTERVALO = 120000; // 2 min
   let avisando = false;
