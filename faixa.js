@@ -26,7 +26,7 @@
   'use strict'
 
   var BANNER_ID = 'faixaPendBanner'
-  var CORTE = '2026-11-19' // vigência (decisão André 18/11)
+  var CORTE = '2026-11-18' // vigência (decisão André 18/11)
   var API = 'https://painel-entregas-semanais-708f0.shrd00.internal.goskip.dev'
   var INTERVALO = 60000 // 1 min: barato e suficiente para "hora virou"
 
