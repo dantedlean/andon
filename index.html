@@ -323,7 +323,7 @@ body.nologin .top nav,body.nologin .top-tools{display:none}
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Alerta de lançamento pendente por faixa (T3, 18/11). Arquivo separado:
      não altera o app; se falhar, o Andon segue normal. Vigência 19/11. -->
-<script src="faixa.js?v=20261118-6"></script>
+<script src="faixa.js?v=20261118-7"></script>
 <script>
 (() => {
 'use strict';
@@ -2343,7 +2343,7 @@ document.addEventListener('change', async (ev) => {
   //      UMA vez por sessão — se voltar igual, para de tentar e avisa;
   //   2) a comparação ignora espaços/quebras e usa o maior valor "data-hora",
   //      então um version.txt mais novo nunca fica em loop.
-  const VERSAO = '20261118-6'; // DEVE casar com version.txt a cada publicação
+  const VERSAO = '20261118-7'; // DEVE casar com version.txt a cada publicação
   const ARQ = 'version.txt';
   const INTERVALO = 120000; // 2 min
   let avisando = false;
