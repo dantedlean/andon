@@ -30,7 +30,9 @@
   var API = 'https://painel-entregas-semanais-708f0.shrd00.internal.goskip.dev'
   var INTERVALO = 60000 // 1 min: barato e suficiente para "hora virou"
 
-  // 8 motivos (os 7 do app + "Ritmo lento", decisão 18/11)
+  // 7 motivos (decisão 18/11). "Ritmo lento" fica de fora por enquanto:
+  // ele serve para "abaixo da meta", que só entra na próxima etapa. Hoje o
+  // alerta é apenas de faixa SEM lançamento.
   var MOTIVOS = [
     'Setup / troca de produto',
     'Manutenção',
@@ -38,7 +40,6 @@
     'Qualidade / retrabalho',
     'Ajuste de processo',
     'Falta de operador',
-    'Ritmo lento',
     'Outro',
   ]
 
@@ -155,77 +156,39 @@
     if (!visiveis.length) {
       b.style.display = 'none'
       piscar(false)
+      var velho = document.getElementById('faixaPainel')
+      if (velho) velho.parentNode.removeChild(velho)
       return
     }
 
-    // Bloqueio POR FAIXA (correção 18/11): o Marcos é responsável só de
-    // Montagem Curitiba — ele NÃO pode dispensar a faixa do Corte laser, mas
-    // também não fica preso a ela. Cada linha decide sozinha.
+    // Bloqueio POR FAIXA: cada linha decide sozinha se eu posso dispensar.
     var bloqueia = visiveis.some(souResponsavel)
-    var linhas = visiveis
-      .slice(0, 12)
-      .map(function (p) {
-        var resp = (p.responsaveis || []).map(function (x) { return x.nome }).join(', ')
-        var fundo = p.tipo === 'zero' ? '#7f1d1d' : '#9a3412'
-        var rotulo = p.tipo === 'zero' ? 'SEM APONTAMENTO' : 'ABAIXO DA META'
-        var realTxt = p.tipo === 'zero' ? '0' : String(p.produzido)
-        return (
-          '<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;' +
-          'background:' + fundo + ';border-radius:6px;margin:4px 0;flex-wrap:wrap">' +
-          '<span style="background:rgba(255,255,255,.22);border-radius:4px;padding:2px 7px;' +
-          'font-size:10.5px;font-weight:800;letter-spacing:.3px">' + rotulo + '</span>' +
-          '<b style="font-size:12.5px">' + esc(p.celula_nome) + '</b>' +
-          '<span style="opacity:.9;font-size:12px">' + esc(p.faixa_ini) + '–' + esc(p.faixa_fim) + '</span>' +
-          '<span style="opacity:.8;font-size:11.5px">' + realTxt + ' / ' + p.meta + '</span>' +
-          '<span style="flex:1"></span>' +
-          (souResponsavel(p)
-            ? '<button data-just="' + esc(chave(p)) + '" style="background:#fff;color:#991b1b;' +
-              'border:0;border-radius:6px;padding:5px 12px;font-weight:800;font-size:12px;cursor:pointer">' +
-              'Justificar</button>'
-            : '<span style="font-size:11px;opacity:.85;margin-right:6px">' + esc(resp) + '</span>') +
-          '</div>'
-        )
-      })
-      .join('')
 
-    var resto =
-      visiveis.length > 12
-        ? '<div style="padding:4px 12px;font-size:11.5px;opacity:.9">+ ' + (visiveis.length - 12) + ' outras faixas</div>'
-        : ''
-
+    // Banner GENÉRICO (pedido André 18/11): uma linha, sem listar tudo.
+    // O detalhe só aparece ao clicar em "Ver".
     var botaoDispensar = bloqueia
       ? '<span style="font-size:11.5px;opacity:.9">Você é responsável: só sai lançando</span>'
       : '<button id="faixaDispensar" style="background:rgba(255,255,255,.18);color:#fff;' +
-        'border:1px solid rgba(255,255,255,.55);border-radius:6px;padding:6px 13px;' +
-        'font-weight:700;font-size:12px;cursor:pointer">Dispensar</button>'
+        'border:1px solid rgba(255,255,255,.55);border-radius:7px;padding:7px 14px;' +
+        'font-weight:700;font-size:12.5px;cursor:pointer">Dispensar</button>'
 
     b.innerHTML =
-      '<div style="display:flex;align-items:center;gap:10px;padding:9px 14px 6px;flex-wrap:wrap">' +
-      '  <span style="font-size:16px">⚠️</span>' +
-      '  <b style="font-size:13.5px">' + visiveis.length +
+      '<div style="display:flex;align-items:center;gap:12px;padding:10px 15px;flex-wrap:wrap">' +
+      '  <span style="font-size:17px">⚠️</span>' +
+      '  <b style="font-size:14px">' + visiveis.length +
       (visiveis.length === 1 ? ' faixa sem lançamento' : ' faixas sem lançamento') + '</b>' +
-      '  <span style="flex:1"></span>' +
+      '  <span style="flex:1;min-width:120px;opacity:.9;font-size:12.5px">' +
+      'clique em Ver para saber quais' + '</span>' +
+      '  <button id="faixaVer" style="background:#fff;color:#991b1b;border:0;border-radius:7px;' +
+      'padding:7px 16px;font-weight:800;font-size:12.5px;cursor:pointer">Ver</button>' +
       botaoDispensar +
-      '</div>' +
-      '<div style="padding:0 10px 10px">' + linhas + resto + '</div>'
+      '</div>'
 
     b.style.display = 'block'
     piscar(bloqueia) // pisca só para quem não pode dispensar
 
-    // liga os botões
-    var botoes = b.querySelectorAll('[data-just]')
-    for (var i = 0; i < botoes.length; i++) {
-      botoes[i].onclick = (function (btn) {
-        return function () {
-          var k = btn.getAttribute('data-just')
-          var alvo = null
-          for (var j = 0; j < visiveis.length; j++) {
-            if (chave(visiveis[j]) === k) { alvo = visiveis[j]; break }
-          }
-          if (alvo) abrirMotivos(alvo)
-        }
-      })(botoes[i])
-    }
+    var ver = document.getElementById('faixaVer')
+    if (ver) ver.onclick = function () { abrirPainel(visiveis) }
 
     var disp = document.getElementById('faixaDispensar')
     if (disp) {
@@ -236,8 +199,80 @@
     }
   }
 
+  // ── painel com a LISTA de pendências (botão "Ver") ─────────────────────────
+  function abrirPainel(visiveis) {
+    var velho = document.getElementById('faixaPainel')
+    if (velho) velho.parentNode.removeChild(velho)
+
+    var m = document.createElement('div')
+    m.id = 'faixaPainel'
+    m.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:99995',
+      'background:rgba(0,0,0,.62)', 'display:flex',
+      'align-items:center', 'justify-content:center', 'padding:16px',
+    ].join(';')
+
+    var linhas = visiveis
+      .map(function (p) {
+        var resp = (p.responsaveis || []).map(function (x) { return x.nome }).join(', ')
+        var acao = souResponsavel(p)
+          ? '<button data-mot="' + esc(chave(p)) + '" style="background:#991b1b;color:#fff;' +
+            'border:0;border-radius:7px;padding:8px 14px;font-weight:800;font-size:12.5px;' +
+            'cursor:pointer;white-space:nowrap">Informar motivo</button>'
+          : '<span style="font-size:11.5px;color:#6b7280;white-space:nowrap">' +
+            esc(resp || 'sem responsável') + '</span>'
+        return (
+          '<div style="display:flex;align-items:center;gap:12px;padding:11px 13px;' +
+          'border-bottom:1px solid #e5e7eb;flex-wrap:wrap">' +
+          '  <div style="flex:1;min-width:180px">' +
+          '    <div style="font-weight:800;font-size:13.5px;color:#111827">' + esc(p.celula_nome) + '</div>' +
+          '    <div style="font-size:12px;color:#6b7280">' + esc(p.faixa_ini) + '–' + esc(p.faixa_fim) +
+          '  ·  programado ' + p.meta + ' un  ·  lançado 0</div>' +
+          '  </div>' +
+          acao +
+          '</div>'
+        )
+      })
+      .join('')
+
+    m.innerHTML =
+      '<div style="background:#fff;border-radius:12px;max-width:620px;width:100%;' +
+      'font-family:inherit;max-height:86vh;display:flex;flex-direction:column">' +
+      '  <div style="padding:16px 18px 12px;border-bottom:1px solid #e5e7eb">' +
+      '    <h3 style="margin:0;font-size:17px;color:#111827">Faixas sem lançamento</h3>' +
+      '    <div style="color:#6b7280;font-size:12.5px;margin-top:3px">' +
+      visiveis.length + (visiveis.length === 1 ? ' faixa pendente' : ' faixas pendentes') +
+      '  ·  dia ' + esc(hoje().split('-').reverse().join('/')) + '</div>' +
+      '  </div>' +
+      '  <div style="overflow:auto">' + linhas + '</div>' +
+      '  <div style="padding:12px 18px;text-align:right;border-top:1px solid #e5e7eb">' +
+      '    <button id="faixaPainelOk" style="background:#f3f4f6;color:#374151;border:0;' +
+      'border-radius:7px;padding:9px 18px;font-weight:700;font-size:13px;cursor:pointer">Fechar</button>' +
+      '  </div>' +
+      '</div>'
+
+    document.body.appendChild(m)
+    document.getElementById('faixaPainelOk').onclick = function () {
+      m.parentNode.removeChild(m)
+    }
+
+    var botoes = m.querySelectorAll('[data-mot]')
+    for (var i = 0; i < botoes.length; i++) {
+      botoes[i].onclick = (function (btn) {
+        return function () {
+          var k = btn.getAttribute('data-mot')
+          var alvo = null
+          for (var j = 0; j < visiveis.length; j++) {
+            if (chave(visiveis[j]) === k) { alvo = visiveis[j]; break }
+          }
+          if (alvo) abrirMotivos(alvo, m)
+        }
+      })(botoes[i])
+    }
+  }
+
   // ── escolha do motivo: botões grandes, 1 toque ──────────────────────────────
-  function abrirMotivos(p) {
+  function abrirMotivos(p, painelPai) {
     var velho = document.getElementById('faixaMotivos')
     if (velho) velho.parentNode.removeChild(velho)
 
@@ -257,9 +292,11 @@
       )
     }).join('')
 
+    // Hoje o alerta é só de faixa SEM lançamento (regra 18/11). O texto de
+    // "abaixo da meta" fica pronto para quando essa etapa for ligada.
     var subtitulo =
       p.tipo === 'zero'
-        ? 'Não houve apontamento nesta faixa'
+        ? 'Nenhum lançamento nesta faixa — informe o motivo'
         : 'Produziu ' + p.produzido + ' de ' + p.meta + ' (abaixo da meta)'
 
     m.innerHTML =
@@ -288,13 +325,13 @@
         return function () {
           btn.disabled = true
           btn.textContent = 'Gravando…'
-          salvar(p, btn.getAttribute('data-mot'), m)
+          salvar(p, btn.getAttribute('data-mot'), m, painelPai)
         }
       })(opts[i])
     }
   }
 
-  function salvar(p, motivo, modal) {
+  function salvar(p, motivo, modal, painelPai) {
     var me = eu()
     var corpo = {
       dia: p.dia,
@@ -323,7 +360,8 @@
       })
       .then(function () {
         if (modal && modal.parentNode) modal.parentNode.removeChild(modal)
-        // recarrega: a faixa justificada sai da lista
+        if (painelPai && painelPai.parentNode) painelPai.parentNode.removeChild(painelPai)
+        // recarrega: a faixa marcada sai da lista
         buscar()
       })
       .catch(function (e) {
