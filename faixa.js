@@ -26,7 +26,7 @@
   'use strict'
 
   var BANNER_ID = 'faixaPendBanner'
-  var CORTE = '2026-11-18' // vigência (decisão André 18/11)
+  var CORTE = '2026-11-19' // vigência (decisão André 18/11)
   var API = 'https://painel-entregas-semanais-708f0.shrd00.internal.goskip.dev'
   var INTERVALO = 60000 // 1 min: barato e suficiente para "hora virou"
 
@@ -116,21 +116,30 @@
     if (b) return b
     b = document.createElement('div')
     b.id = BANNER_ID
+    // LAYOUT (correção 18/11): antes era position:fixed e tampava o menu
+    // superior, impedindo a navegação para apontar. Agora entra no FLUXO da
+    // página, logo após o <header>: empurra o conteúdo para baixo em vez de
+    // cobrir. Nada do app é escondido.
     b.style.cssText = [
-      'position:fixed',
-      'top:0',
-      'left:0',
-      'right:0',
-      'z-index:99990',
+      'position:relative',
+      'z-index:900',
       'display:none',
       'background:#b91c1c',
       'color:#fff',
       'font-family:inherit',
-      'box-shadow:0 4px 14px rgba(0,0,0,.35)',
-      'max-height:62vh',
-      'overflow:auto',
+      'box-shadow:0 2px 8px rgba(0,0,0,.25)',
     ].join(';')
-    document.body.appendChild(b)
+
+    // procura o melhor ponto de inserção: depois do header do app
+    var alvo = document.querySelector('header.top') || document.querySelector('header') || null
+    if (alvo && alvo.parentNode) {
+      alvo.parentNode.insertBefore(b, alvo.nextSibling)
+    } else {
+      // fallback: antes do primeiro irmão de conteúdo, nunca no fim do body
+      var main = document.querySelector('main') || document.getElementById('view') || null
+      if (main && main.parentNode) main.parentNode.insertBefore(b, main)
+      else document.body.insertBefore(b, document.body.firstChild)
+    }
     return b
   }
 
@@ -231,7 +240,20 @@
       'align-items:center', 'justify-content:center', 'padding:16px',
     ].join(';')
 
-    var linhas = visiveis
+    // ORDENAÇÃO (pedido André 18/11): agrupar por FAIXA HORÁRIA, não por célula.
+    // Dentro da mesma faixa, ordena pelo nome da célula.
+    var ordenadas = visiveis.slice().sort(function (a, b) {
+      var ta = String(a.faixa_ini || '')
+      var tb = String(b.faixa_ini || '')
+      if (ta !== tb) return ta < tb ? -1 : 1
+      var na = String(a.celula_nome || '')
+      var nb = String(b.celula_nome || '')
+      return na < nb ? -1 : na > nb ? 1 : 0
+    })
+
+    // cabeçalho de faixa: aparece quando a faixa muda
+    var faixaAtual = ''
+    var linhas = ordenadas
       .map(function (p) {
         var resp = (p.responsaveis || []).map(function (x) { return x.nome }).join(', ')
         var acao = souResponsavel(p)
@@ -240,13 +262,24 @@
             'cursor:pointer;white-space:nowrap">Informar motivo</button>'
           : '<span style="font-size:11.5px;color:#6b7280;white-space:nowrap">' +
             esc(resp || 'sem responsável') + '</span>'
+        var cab = ''
+        if (p.faixa_ini !== faixaAtual) {
+          faixaAtual = p.faixa_ini
+          cab =
+            '<div style="background:#f3f4f6;padding:8px 14px;font-weight:800;' +
+            'font-size:12.5px;color:#374151;letter-spacing:.3px;' +
+            'border-top:1px solid #e5e7eb">' +
+            esc(p.faixa_ini) + '–' + esc(p.faixa_fim) +
+            '</div>'
+        }
         return (
+          cab +
           '<div style="display:flex;align-items:center;gap:12px;padding:11px 13px;' +
           'border-bottom:1px solid #e5e7eb;flex-wrap:wrap">' +
           '  <div style="flex:1;min-width:180px">' +
           '    <div style="font-weight:800;font-size:13.5px;color:#111827">' + esc(p.celula_nome) + '</div>' +
-          '    <div style="font-size:12px;color:#6b7280">' + esc(p.faixa_ini) + '–' + esc(p.faixa_fim) +
-          '  ·  programado ' + p.meta + ' un  ·  lançado 0</div>' +
+          '    <div style="font-size:12px;color:#6b7280">programado ' + p.meta +
+          ' un  ·  lançado 0</div>' +
           '  </div>' +
           acao +
           '</div>'
