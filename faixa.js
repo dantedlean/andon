@@ -75,6 +75,11 @@
   var SB_URL = 'https://pntmmydzxbdxjtyglwlh.supabase.co'
   var SB_KEY = 'sb_publishable_HrKp9FJkJHSOkKR3BLHjdw_-09h_KxF'
   var _eu = null
+  // PAPEL DO USUÁRIO (19/11, pedido Dlean): o dev/admin master também precisa
+  // poder justificar, mesmo sem estar na lista de responsáveis por célula.
+  // O papel vive em `perfis` (Supabase), que só é legível AUTENTICADO — então
+  // lemos com o token da própria sessão, uma vez, e guardamos.
+  var _papel = ''
 
   function lerSessao() {
     try {
@@ -106,6 +111,8 @@
 
   // responsável = o e-mail do usuário está na lista daquela célula
   function souResponsavel(p) {
+    // admin (PCP/dev) pode justificar em qualquer célula
+    if (_papel === 'admin') return true
     var me = eu()
     if (!me.email) return false
     var lista = p.responsaveis || []
@@ -113,6 +120,21 @@
       if (String(lista[i].email || '').toLowerCase() === me.email.toLowerCase()) return true
     }
     return false
+  }
+
+  // busca o papel uma vez, com o token do usuário
+  function carregarPapel(cb) {
+    var me = eu()
+    if (!me.token || !me.id) { if (cb) cb(); return }
+    fetch(SB_URL + '/rest/v1/perfis?select=papel&user_id=eq.' + encodeURIComponent(me.id), {
+      headers: { apikey: SB_KEY, Authorization: 'Bearer ' + me.token },
+    })
+      .then(function (r) { return r.ok ? r.json() : [] })
+      .then(function (rows) {
+        _papel = String((rows && rows[0] && rows[0].papel) || '')
+        if (cb) cb()
+      })
+      .catch(function () { if (cb) cb() })
   }
 
   function criar() {
@@ -602,9 +624,12 @@
         if (++tentativas > 240) return // ~2 min: desiste sem atrapalhar
         return setTimeout(tenta, 500)
       }
-      buscar()
-      if (_timer) clearInterval(_timer)
-      _timer = setInterval(buscar, INTERVALO)
+      // papel primeiro: sem ele, admin nao ve o botao justificar
+      carregarPapel(function () {
+        buscar()
+        if (_timer) clearInterval(_timer)
+        _timer = setInterval(buscar, INTERVALO)
+      })
     }
     tenta()
   }
