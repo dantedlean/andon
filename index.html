@@ -1206,7 +1206,7 @@ function gTurno() {
     kpiBox('Disponibilidade', progMin ? pct(progMin - perdas, progMin) + '%' : '—', fmt(perdas) + ' min parados de ' + fmt(progMin), perdas / (progMin || 1) > 0.1 ? 'var(--warn-ink)' : 'var(--ok)'),
     kpiBox('Peças por operador-hora', opH ? fmt1(A.t.tot / opH) : '—', fmt1(opH) + ' operador-horas'),
     kpiBox('Chamados', openCalls.length + ' abertos', tResp != null ? 'resposta média ' + fmt(tResp) + ' min' : 'sem chamados encerrados', openCalls.length ? 'var(--bad-ink)' : 'var(--ok)'),
-    kpiBox('Destino WARD / PV', fmt(A.t.tot - pvTot) + ' / ' + fmt(pvTot), 'supermercado / pedido', 'var(--brand)')
+    kpiBox('Destino AWARD / PV', fmt(A.t.tot - pvTot) + ' / ' + fmt(pvTot), 'supermercado / pedido', 'var(--brand)')
   ].join('');
   // curva acumulada
   let ar = 0, am = 0; const accR = [0], accM = [0], labs = [short(F[0].ini)];
