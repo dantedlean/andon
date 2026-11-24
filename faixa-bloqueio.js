@@ -507,35 +507,72 @@
       if (window.__faixaTravaLancamento) return
       // pcLancar vive no IIFE do app → não é acessível. O que dá para fazer é
       // capturar o clique antes do app (capture phase) no botão de enviar.
+      // A conversa NÃO é só o #pc-send. O app tem 4 caminhos de lançamento:
+      //   #pc-send              -> "Lançar na faixa 13–14"      (PC da célula)
+      //   #tu-send              -> "Lançar faixa 13–14"         (tabela unificada)
+      //   #pend-ok              -> fecha a faixa pelo modal
+      //   botões de lote/caixa  -> lançam N unidades de uma vez
+      // A interceptação é por TEXTO do botão, não por id: assim pega todos,
+      // inclusive os que o app criar depois.
       document.addEventListener(
         'click',
         function (ev) {
           try {
+            if (hoje() < CORTE || !_bloqueio) return
             var alvo = ev.target
             if (!alvo) return
-            var btn = alvo.closest ? alvo.closest('#pc-send') : null
+            var btn = alvo.closest ? alvo.closest('button') : null
             if (!btn) return
-            if (hoje() < CORTE || !_bloqueio) return
             var txt = String(btn.textContent || '')
-            if (txt.indexOf('hora extra') >= 0) return // HE não é faixa normal
-            var m = /Lançar na faixa\s+(\d{1,2})(?::(\d{2}))?/.exec(txt)
-            if (!m) return
-            var hh = String(m[1]).length === 1 ? '0' + m[1] : String(m[1])
-            var ini = hh + ':' + (m[2] || '00')
+
+            // hora extra nunca é bloqueada (não é faixa normal)
+            if (/hora extra/i.test(txt)) return
+
+            // extrai a faixa do texto do botão, aceitando todas as formas:
+            //   "Lançar na faixa 13–14"  |  "Lançar faixa 13–14"
+            //   "Lançar na faixa 07:30–09"  |  "Lançar na faixa 11–12"
+            var m = /faixa\s+(\d{1,2})(?::(\d{2}))?\s*[–\-]/i.exec(txt)
+            var ini = ''
+            if (m) {
+              var hh = String(m[1]).length === 1 ? '0' + m[1] : String(m[1])
+              ini = hh + ':' + (m[2] || '00')
+            } else if (btn.id === 'pend-ok') {
+              // o modal "fechar faixa" não traz o horário no texto: usamos a
+              // faixa que ele está fechando
+              var d = btn.getAttribute('data-fx')
+              if (d == null) return
+              var fx = Number(d)
+              if (!isFinite(fx) || fx < 0) return // hora extra
+              var listaF = (_dados && _dados.faixas) || []
+              if (!listaF[fx]) return
+              ini = String(listaF[fx].ini || '')
+            } else {
+              return
+            }
+            if (!ini) return
+
+            // unidade pela célula aberta (Vinhedo = CCNTI3)
             var un = 'C'
             try {
               var hh2 = String(location.hash || '')
               var mm2 = /apontar-([A-Za-z0-9]+)/.exec(hh2)
               if (mm2 && mm2[1] === 'CCNTI3') un = 'V'
             } catch (e0) {}
+
             var b = faixaBloqueada(un, ini)
             if (!b) return
+
             ev.preventDefault()
             ev.stopPropagation()
             ev.stopImmediatePropagation()
             var nomes = b.celulas.slice(0, 3).map(function (x) { return x.celula_nome }).join(', ')
             var resto = b.celulas.length > 3 ? ' +' + (b.celulas.length - 3) : ''
-            toast('Bloqueado pela faixa ' + b.faixa_ini + ': falta ' + nomes + resto, { tipo: 'erro' })
+            try {
+              toast('Bloqueado pela faixa ' + b.faixa_ini + '–' + b.faixa_fim +
+                '. Falta: ' + nomes + resto, { tipo: 'erro' })
+            } catch (eT) {
+              alert('Bloqueado pela faixa ' + b.faixa_ini + '. Falta: ' + nomes + resto)
+            }
             abrirPainel(b.pendencias)
           } catch (e1) {}
         },
