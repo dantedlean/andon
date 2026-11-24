@@ -135,13 +135,33 @@
   }
 
   // A faixa 'ini' desta unidade está bloqueada?
+  // ── CRONOLOGIA (correção 24/11) ────────────────────────────────────────────
+  // A regra anterior bloqueava "da faixa pendente em diante" — inclusive a
+  // PRÓPRIA faixa pendente. Resultado: impasse. A 07:30 ficava bloqueada por
+  // estar pendente, e como não dava para lançar nela, nunca saía do bloqueio.
+  //
+  // A ordem correta é a dos FATOS: a faixa N só pode ser lançada se TODAS as
+  // faixas ANTERIORES estiverem resolvidas. A faixa pendente em si continua
+  // aberta — é justamente onde se resolve.
+  //
+  //   pendência na 07:30 → 07:30 LIVRE (resolver aqui)
+  //                        09:00 BLOQUEADA, 10:00 BLOQUEADA, ...
+  //   resolvida a 07:30  → 09:00 fica livre
   function faixaBloqueada(unidade, faixaIni) {
     if (!_bloqueio) return null
     var b = _bloqueio[String(unidade || 'C')]
     if (!b) return null
-    // bloqueia da faixa pendente em diante
-    if (String(faixaIni) >= String(b.faixa_ini)) return b
+    // bloqueia apenas as faixas POSTERIORES à pendência
+    if (String(faixaIni) > String(b.faixa_ini)) return b
     return null
+  }
+
+  // A faixa está pendente (é ela que precisa ser resolvida)?
+  function faixaPendente(unidade, faixaIni) {
+    if (!_bloqueio) return false
+    var b = _bloqueio[String(unidade || 'C')]
+    if (!b) return false
+    return String(faixaIni) === String(b.faixa_ini)
   }
 
   // ── BANNER ─────────────────────────────────────────────────────────────────
@@ -201,6 +221,17 @@
       var u = String(lista[i].unidade || 'C')
       unidades[u] = (unidades[u] || 0) + 1
     }
+    // Quantas faixas estão REALMENTE travadas: as posteriores à primeira
+    // pendente. A própria faixa pendente está livre (é onde se resolve).
+    var travadas = 0
+    for (var uu2 in _bloqueio) {
+      if (!_bloqueio.hasOwnProperty(uu2)) continue
+      var lim = String(_bloqueio[uu2].faixa_ini)
+      for (var li = 0; li < lista.length; li++) {
+        if (String(lista[li].unidade || 'C') !== uu2) continue
+        if (String(lista[li].faixa_ini) > lim) travadas++
+      }
+    }
     var resumo = Object.keys(unidades).map(function (uu) {
       return (uu === 'V' ? 'Vinhedo' : 'Curitiba') + ': ' + unidades[uu]
     }).join(' · ')
@@ -210,9 +241,9 @@
       '<div style="display:flex;align-items:center;gap:12px;padding:10px 15px;flex-wrap:wrap">' +
       '  <span style="font-size:17px">🔒</span>' +
       '  <b style="font-size:14px">' + lista.length +
-      (lista.length === 1 ? ' faixa bloqueada' : ' faixas bloqueadas') + '</b>' +
+      (lista.length === 1 ? ' faixa a resolver' : ' faixas a resolver') + '</b>' +
       '  <span style="flex:1;min-width:140px;opacity:.92;font-size:12.5px">' +
-      esc(resumo) + ' — lance ou justifique para liberar</span>' +
+      esc(resumo) + ' — lance ou justifique na ordem das faixas</span>' +
       '  <button id="faixaVer" style="background:#fff;color:#991b1b;border:0;border-radius:7px;' +
       'padding:7px 16px;font-weight:800;font-size:12.5px;cursor:pointer">Ver e resolver</button>' +
       '</div>'
@@ -265,11 +296,24 @@
           'font-size:12.5px;color:#374151;border-top:1px solid #e5e7eb">' +
           esc(p.faixa_ini) + '–' + esc(p.faixa_fim) + '</div>'
       }
+      // A PRIMEIRA faixa pendente de cada unidade é a que se resolve AGORA.
+      // As seguintes só abrem depois — marcar isso evita a pessoa tentar
+      // resolver tudo de uma vez e não entender por que o banner não some.
+      var limUn = (_bloqueio && _bloqueio[String(p.unidade || 'C')])
+        ? String(_bloqueio[String(p.unidade || 'C')].faixa_ini) : ''
+      var ehAtual = limUn && String(p.faixa_ini) === limUn
+      var tagAgora = ehAtual
+        ? '<span style="background:#059669;color:#fff;border-radius:5px;padding:2px 7px;' +
+          'font-size:10.5px;font-weight:800;letter-spacing:.4px">RESOLVA AGORA</span> '
+        : '<span style="background:#e5e7eb;color:#6b7280;border-radius:5px;padding:2px 7px;' +
+          'font-size:10.5px;font-weight:700">depois desta</span> '
       return cab +
         '<div style="display:flex;align-items:center;gap:12px;padding:11px 13px;' +
-        'border-bottom:1px solid #e5e7eb;flex-wrap:wrap">' +
+        'border-bottom:1px solid #e5e7eb;flex-wrap:wrap' +
+        (ehAtual ? ';background:#f0fdf4' : '') + '">' +
         '  <div style="flex:1;min-width:170px">' +
-        '    <div style="font-weight:800;font-size:13.5px;color:#111827">' + esc(p.celula_nome) + '</div>' +
+        '    <div style="font-weight:800;font-size:13.5px;color:#111827">' + tagAgora +
+        esc(p.celula_nome) + '</div>' +
         '    <div style="font-size:12px;color:#6b7280">programado ' + (p.meta || 0) + ' un · lançado 0</div>' +
         '  </div>' +
         '  <button data-mot="' + esc(chave(p)) + '" style="background:#991b1b;color:#fff;' +
@@ -284,7 +328,7 @@
       '  <div style="padding:16px 18px 12px;border-bottom:1px solid #e5e7eb">' +
       '    <h3 style="margin:0;font-size:17px;color:#111827">Faixas bloqueadas</h3>' +
       '    <div style="color:#6b7280;font-size:12.5px;margin-top:3px">' +
-      'O lançamento só libera quando todas estiverem justificadas · dia ' +
+      'Resolva na ordem: cada faixa libera a seguinte · dia ' +
       esc(hoje().split('-').reverse().join('/')) + '</div>' +
       '  </div>' +
       '  <div style="overflow:auto">' + linhas + '</div>' +
