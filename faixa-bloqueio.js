@@ -426,11 +426,19 @@
       }
 
       // descobre a unidade e a faixa que o app está prestes a usar.
-      // Lemos do próprio DOM/botão: "Lançar na faixa 09:00–10:00".
+      //
+      // CUIDADO (corrigido 24/11): o app escreve a faixa com a função `short()`,
+      // que CORTA o ':00'. O botão diz "Lançar na faixa 09–10", não "09:00–10:00".
+      // O regex antigo exigia HH:MM e nunca casava → a trava não agia nunca.
+      // Agora aceitamos as duas formas e normalizamos para HH:MM.
       var iniFaixa = ''
       if (btn) {
-        var m = /Lançar na faixa\s+(\d{1,2}:\d{2})/.exec(String(btn.textContent || ''))
-        if (m) iniFaixa = m[1]
+        var txtBtn = String(btn.textContent || '')
+        var m = /Lançar na faixa\s+(\d{1,2})(?::(\d{2}))?/.exec(txtBtn)
+        if (m) {
+          var hh = String(m[1]).length === 1 ? '0' + m[1] : String(m[1])
+          iniFaixa = hh + ':' + (m[2] || '00')
+        }
       }
 
       // unidade: o app tem URLs '#apontar-<cel>' e a célula sabe a unidade.
@@ -488,6 +496,53 @@
         if (bt) bt.disabled = false
       } catch (e2) {}
     }
+  }
+
+  // ── INTERCEPTAÇÃO DO LANÇAMENTO (24/11) ───────────────────────────────────
+  // Desabilitar o botão não basta: o app recria o DOM e o clique pode vir do
+  // "Lançar por caixa" (lote) ou de outra via. Aqui envolvemos o `pcLancar`
+  // do app: se a faixa estiver bloqueada, recusamos com aviso.
+  function interceptarLancamento() {
+    try {
+      if (window.__faixaTravaLancamento) return
+      // pcLancar vive no IIFE do app → não é acessível. O que dá para fazer é
+      // capturar o clique antes do app (capture phase) no botão de enviar.
+      document.addEventListener(
+        'click',
+        function (ev) {
+          try {
+            var alvo = ev.target
+            if (!alvo) return
+            var btn = alvo.closest ? alvo.closest('#pc-send') : null
+            if (!btn) return
+            if (hoje() < CORTE || !_bloqueio) return
+            var txt = String(btn.textContent || '')
+            if (txt.indexOf('hora extra') >= 0) return // HE não é faixa normal
+            var m = /Lançar na faixa\s+(\d{1,2})(?::(\d{2}))?/.exec(txt)
+            if (!m) return
+            var hh = String(m[1]).length === 1 ? '0' + m[1] : String(m[1])
+            var ini = hh + ':' + (m[2] || '00')
+            var un = 'C'
+            try {
+              var hh2 = String(location.hash || '')
+              var mm2 = /apontar-([A-Za-z0-9]+)/.exec(hh2)
+              if (mm2 && mm2[1] === 'CCNTI3') un = 'V'
+            } catch (e0) {}
+            var b = faixaBloqueada(un, ini)
+            if (!b) return
+            ev.preventDefault()
+            ev.stopPropagation()
+            ev.stopImmediatePropagation()
+            var nomes = b.celulas.slice(0, 3).map(function (x) { return x.celula_nome }).join(', ')
+            var resto = b.celulas.length > 3 ? ' +' + (b.celulas.length - 3) : ''
+            toast('Bloqueado pela faixa ' + b.faixa_ini + ': falta ' + nomes + resto, { tipo: 'erro' })
+            abrirPainel(b.pendencias)
+          } catch (e1) {}
+        },
+        true, // capture: roda ANTES do handler do app
+      )
+      window.__faixaTravaLancamento = true
+    } catch (e) {}
   }
 
   function buscar() {
@@ -565,6 +620,7 @@
         if (++tentativas > 240) return
         return setTimeout(tenta, 500)
       }
+      interceptarLancamento()
       buscar()
       if (_timer) clearInterval(_timer)
       _timer = setInterval(buscar, INTERVALO)
