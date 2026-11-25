@@ -164,6 +164,56 @@
     return CELULAS_VINHEDO[String(cel || '').trim()] ? 'V' : 'C'
   }
 
+  // ── QUEM PODE LANÇAR E JUSTIFICAR EM CADA UNIDADE (25/11, decisão Dlean) ──
+  // "hoje só quem poderá lançar Vinhedo será projetos.sp@dlean.com.br" e a
+  // restrição vale para as DUAS coisas: lançar e justificar.
+  // Admin continua livre em qualquer unidade (papel = admin).
+  // Não há impasse: se a responsável faltar, o admin destrava.
+  var EMAILS_VINHEDO = { 'projetos.sp@dlean.com.br': true }
+  var ADMINS_UIDS = null // preenchido a partir de S.perfisMap (papel do perfil)
+
+  function papelDoUsuario() {
+    try {
+      var me = eu()
+      var pm = (window.S && window.S.perfisMap) || null
+      if (pm && me && me.id && pm[me.id] && pm[me.id].papel) return String(pm[me.id].papel)
+      // fallback por e-mail
+      if (pm) {
+        for (var k in pm) {
+          if (!pm.hasOwnProperty(k)) continue
+          if (String(pm[k].email || '').toLowerCase() === String(me.email || '').toLowerCase()) {
+            return String(pm[k].papel || '')
+          }
+        }
+      }
+      // o próprio perfil carregado pelo app
+      if (window.S && window.S.perfil && window.S.perfil.papel) return String(window.S.perfil.papel)
+    } catch (e) {}
+    return ''
+  }
+
+  function ehAdmin() {
+    return papelDoUsuario() === 'admin'
+  }
+
+  // Pode agir nesta unidade? (lançar E justificar)
+  function podeAgirNaUnidade(un) {
+    var u = String(un || 'C')
+    if (ehAdmin()) return true // admin: todas as unidades
+    var me = eu()
+    var email = String(me.email || '').toLowerCase()
+    if (u === 'V') {
+      // Vinhedo: SÓ o e-mail responsável (ou admin, tratado acima)
+      return !!EMAILS_VINHEDO[email]
+    }
+    // Curitiba: todos os demais (quem é de Vinhedo não lança em Curitiba)
+    return !EMAILS_VINHEDO[email]
+  }
+
+  function podeAgirNaCelula(cel) {
+    return podeAgirNaUnidade(unidadeDaCelula(cel))
+  }
+
   // A célula está bloqueada nesta faixa? (null = livre)
   function celulaBloqueada(cel, faixaIni) {
     return faixaBloqueada(unidadeDaCelula(cel), faixaIni)
@@ -250,44 +300,74 @@
       return
     }
 
-    // agrupa por unidade para mostrar o bloqueio de cada uma
-    var unidades = {}
-    for (var i = 0; i < lista.length; i++) {
-      var u = String(lista[i].unidade || 'C')
-      unidades[u] = (unidades[u] || 0) + 1
+    // ── BANNER SEGREGADO POR UNIDADE (25/11, pedido Dlean) ──────────────────
+    // Antes: "Curitiba: 10 · Vinhedo: 2" numa linha só — não dizia o que travava
+    // o quê. Agora cada unidade tem o seu bloco, com título, o que ela trava e
+    // o seu próprio botão. Quem não pode agir na unidade não recebe o botão.
+    var porUn = {}
+    for (var iu = 0; iu < lista.length; iu++) {
+      var uu = String(lista[iu].unidade || 'C')
+      if (!porUn[uu]) porUn[uu] = []
+      porUn[uu].push(lista[iu])
     }
-    // Quantas faixas estão REALMENTE travadas: as posteriores à primeira
-    // pendente. A própria faixa pendente está livre (é onde se resolve).
-    var travadas = 0
-    for (var uu2 in _bloqueio) {
-      if (!_bloqueio.hasOwnProperty(uu2)) continue
-      var lim = String(_bloqueio[uu2].faixa_ini)
-      for (var li = 0; li < lista.length; li++) {
-        if (String(lista[li].unidade || 'C') !== uu2) continue
-        if (String(lista[li].faixa_ini) > lim) travadas++
+    var CORES = {
+      C: { bg: '#b91c1c', nome: 'CURITIBA' },
+      V: { bg: '#7c3aed', nome: 'VINHEDO' },
+    }
+    var todasUn = Object.keys(porUn).sort()
+    var adm = ehAdmin()
+    var blocos = todasUn.map(function (u) {
+      var itensU = porUn[u]
+      var cor = CORES[u] || CORES.C
+      var cels = []
+      var vistos = {}
+      for (var k2 = 0; k2 < itensU.length; k2++) {
+        var nm = String(itensU[k2].celula_nome || itensU[k2].celula || '')
+        if (!nm || vistos[nm]) continue
+        vistos[nm] = true
+        cels.push(nm)
       }
-    }
-    var resumo = Object.keys(unidades).map(function (uu) {
-      return (uu === 'V' ? 'Vinhedo' : 'Curitiba') + ': ' + unidades[uu]
-    }).join(' · ')
+      var listaCels = cels.slice(0, 3).join(', ') + (cels.length > 3 ? ' +' + (cels.length - 3) : '')
+      var pode = podeAgirNaUnidade(u)
+      var botao
+      if (pode) {
+        botao = '<button data-ver-un="' + u + '" style="background:#fff;color:' + cor.bg +
+          ';border:0;border-radius:7px;padding:7px 16px;font-weight:800;font-size:12.5px;' +
+          'cursor:pointer">Ver e resolver</button>'
+      } else {
+        botao = '<span style="opacity:.78;font-size:11.5px;font-style:italic">só ' +
+          (u === 'V' ? 'projetos.sp@dlean.com.br' : 'Curitiba') + '</span>'
+      }
+      return '<div style="display:flex;align-items:center;gap:12px;padding:9px 15px;' +
+        'flex-wrap:wrap;background:' + cor.bg + ';border-bottom:1px solid rgba(255,255,255,.18)">' +
+        '<b style="font-size:11.5px;letter-spacing:.7px;background:rgba(0,0,0,.22);' +
+        'padding:3px 9px;border-radius:5px">' + cor.nome + '</b>' +
+        '<b style="font-size:13.5px">' + itensU.length +
+        (itensU.length === 1 ? ' faixa a resolver' : ' faixas a resolver') + '</b>' +
+        '<span style="flex:1;min-width:130px;opacity:.92;font-size:12px">trava: ' +
+        esc(listaCels) + '</span>' + botao + '</div>'
+    }).join('')
 
-    b.style.background = '#b91c1c'
+    b.style.background = (CORES[todasUn[0]] || CORES.C).bg
     b.innerHTML =
-      '<div style="display:flex;align-items:center;gap:12px;padding:10px 15px;flex-wrap:wrap">' +
-      '  <span style="font-size:17px">🔒</span>' +
-      '  <b style="font-size:14px">' + lista.length +
-      (lista.length === 1 ? ' faixa a resolver' : ' faixas a resolver') + '</b>' +
-      '  <span style="flex:1;min-width:140px;opacity:.92;font-size:12.5px">' +
-      esc(resumo) + ' — lance ou justifique na ordem das faixas</span>' +
-      '  <button id="faixaVer" style="background:#fff;color:#991b1b;border:0;border-radius:7px;' +
-      'padding:7px 16px;font-weight:800;font-size:12.5px;cursor:pointer">Ver e resolver</button>' +
-      '</div>'
+      '<div style="display:flex;align-items:center;gap:10px;padding:8px 15px;' +
+      'background:#0f172a;color:#fff">' +
+      '<span style="font-size:15px">🔒</span>' +
+      '<b style="font-size:13px">Bloqueio por unidade</b>' +
+      '<span style="flex:1;font-size:11.5px;opacity:.8">lançar ou justificar na ordem das faixas' +
+      (adm ? ' · você é admin, libera as duas' : '') + '</span></div>' + blocos
 
     b.style.display = 'block'
     piscar(true)
 
-    var ver = document.getElementById('faixaVer')
-    if (ver) ver.onclick = function () { abrirPainel(lista) }
+    var botoes = b.querySelectorAll('[data-ver-un]')
+    for (var ib = 0; ib < botoes.length; ib++) {
+      botoes[ib].onclick = (function (btn) {
+        return function () {
+          abrirPainel(porUn[btn.getAttribute('data-ver-un')] || [])
+        }
+      })(botoes[ib])
+    }
   }
 
   // ── PAINEL DE RESOLUÇÃO ────────────────────────────────────────────────────
@@ -530,7 +610,33 @@
 
       if (!iniFaixa) return // não conseguimos ler: não bloqueia
 
+      // PERMISSÃO POR UNIDADE (25/11): quem não pode agir na unidade não lança
+      var celAberta = ''
+      try {
+        var hx = String(location.hash || '')
+        var mx = /apontar-([A-Za-z0-9]+)/.exec(hx)
+        if (mx) celAberta = mx[1]
+      } catch (e9) {}
+      var semPermissao = celAberta && !podeAgirNaCelula(celAberta)
+
       var b = faixaBloqueada(un, iniFaixa)
+      if (semPermissao) {
+        if (btn) {
+          btn.disabled = true
+          btn.style.opacity = '0.5'
+          btn.style.cursor = 'not-allowed'
+          btn.setAttribute('title', 'sem permissão nesta unidade')
+        }
+        if (!aviso) {
+          aviso = document.createElement('div')
+          aviso.id = 'bloqAviso'
+          aviso.style.cssText = 'margin-top:10px;background:#fef2f2;border:1px solid #fecaca;' +
+            'color:#991b1b;border-radius:8px;padding:10px 12px;font-size:12.5px;font-weight:600'
+          if (btn && btn.parentNode) btn.parentNode.insertBefore(aviso, btn)
+        }
+        aviso.innerHTML = '🚫 ' + esc(motivoSemPermissao(celAberta))
+        return
+      }
       if (!b) {
         if (btn) {
           btn.disabled = false
@@ -635,6 +741,22 @@
               if (mm2) un = unidadeDaCelula(mm2[1])
             } catch (e0) {}
 
+            // PERMISSÃO: descobre a célula do lançamento (PC usa a célula aberta)
+            var celLanc = ''
+            try {
+              var mh = /apontar-([A-Za-z0-9]+)/.exec(String(location.hash || ''))
+              if (mh) celLanc = mh[1]
+            } catch (eP) {}
+            if (celLanc && !podeAgirNaCelula(celLanc)) {
+              ev.preventDefault()
+              ev.stopPropagation()
+              ev.stopImmediatePropagation()
+              try { toast(motivoSemPermissao(celLanc)) } catch (eT) {
+                alert(motivoSemPermissao(celLanc))
+              }
+              return
+            }
+
             var b = faixaBloqueada(un, ini)
             if (!b) return
 
@@ -711,6 +833,17 @@
       window.FAIXA_BLOQ = {
         unidadeDaCelula: unidadeDaCelula,
         bloqueada: function (cel, faixaIni) { return celulaBloqueada(cel, faixaIni) },
+        // permissão por unidade (lançar E justificar)
+        podeAgirNaUnidade: podeAgirNaUnidade,
+        podeAgirNaCelula: podeAgirNaCelula,
+        ehAdmin: ehAdmin,
+        // por que não pode (mensagem pronta para o app usar)
+        motivoSemPermissao: function (cel) {
+          var u = unidadeDaCelula(cel)
+          var nome = u === 'V' ? 'Vinhedo' : 'Curitiba'
+          if (u === 'V') return 'Só projetos.sp@dlean.com.br lança em ' + nome
+          return 'Vinhedo lança apenas em Vinhedo'
+        },
         pendenciasDaCelula: function (cel, faixaIni) {
           var b = celulaBloqueada(cel, faixaIni)
           if (!b) return []
