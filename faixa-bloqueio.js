@@ -82,10 +82,28 @@
     var s = lerSessao()
     if (!s || !s.access_token) return { id: '', email: '', nome: '', token: '' }
     var email = String((s.user && s.user.email) || '')
+    // NOME DO OPERADOR (25/11, pedido Dlean): antes gravávamos o prefixo do
+    // e-mail ('estagiariodlean', 'qualidadedlean'). O nome de verdade está na
+    // tabela `perfis` do Supabase, que o app já carrega em S.perfisMap.
+    var nomeReal = ''
+    try {
+      var uid = String((s.user && s.user.id) || '')
+      var pm = (window.S && window.S.perfisMap) || null
+      if (pm && uid && pm[uid]) nomeReal = String(pm[uid].nome || '')
+      if (!nomeReal && pm) {
+        for (var k in pm) {
+          if (!pm.hasOwnProperty(k)) continue
+          if (String(pm[k].email || '').toLowerCase() === email.toLowerCase()) {
+            nomeReal = String(pm[k].nome || '')
+            break
+          }
+        }
+      }
+    } catch (e) {}
     _eu = {
       id: String((s.user && s.user.id) || ''),
       email: email,
-      nome: email.split('@')[0],
+      nome: nomeReal || email.split('@')[0],
       token: String(s.access_token),
     }
     return _eu
