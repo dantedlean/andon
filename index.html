@@ -1947,13 +1947,47 @@ async function tuLancar() {
     if (okH) toast(okH + ' lançamento' + (okH > 1 ? 's' : '') + ' de hora extra gravado' + (okH > 1 ? 's' : '') + ' · ' + ini + '–' + fim);
     return;
   }
+  // ── BLOQUEIO POR CÉLULA (25/11, pedido Dlean — opção A) ───────────────────
+  // Antes esta função lançava TODAS as células de uma vez, e a trava julgava
+  // pela unidade da TELA. Na tela Apontamento o endereço não identifica a
+  // célula, então a trava caía em Curitiba e bloqueava Vinhedo.
+  // Agora a checagem é CÉLULA a CÉLULA: as de Vinhedo seguem livres mesmo com
+  // Curitiba travada, e vice-versa. O que for bloqueado NÃO é gravado, e o
+  // aviso diz exatamente o que ficou de fora.
+  let liberados = items, recusados = [];
+  try {
+    if (window.FAIXA_BLOQ && window.FAIXA_BLOQ.ativo()) {
+      const ini = faixas()[i].ini;
+      liberados = []; recusados = [];
+      for (const it of items) {
+        const b = window.FAIXA_BLOQ.bloqueada(it.cel, ini);
+        if (b) recusados.push({ cel: it.cel, b });
+        else liberados.push(it);
+      }
+      if (!liberados.length) {
+        const nomes = [...new Set(recusados.map((r) => celName(r.cel)))].slice(0, 3).join(', ');
+        return toast('Faixa ' + ini + ' bloqueada: resolva ' + nomes);
+      }
+    }
+  } catch (eB) { liberados = items; recusados = []; }
   const btn = $('#tu-send'); btn.disabled = true;
   let ok = 0;
-  for (const it of items) { try { await addApont(it.cel, i, it.nome, it.q, S.tu.op.trim()); ok++; } catch (e) { toast(errMsg(e)); break; } }
+  for (const it of liberados) { try { await addApont(it.cel, i, it.nome, it.q, S.tu.op.trim()); ok++; } catch (e) { toast(errMsg(e)); break; } }
   S.tu.vals = {}; S.tu.outros = {};
   document.querySelectorAll('[data-tu],[data-tuo]').forEach((el) => { el.value = ''; });
   btn.disabled = false;
-  if (ok) toast(ok + ' lançamento' + (ok > 1 ? 's' : '') + ' gravado' + (ok > 1 ? 's' : '') + ' na faixa ' + faixas()[i].ini + '–' + faixas()[i].fim);
+  if (ok) {
+    const faixaTxt = faixas()[i].ini + '–' + faixas()[i].fim;
+    if (recusados.length) {
+      const nomesR = [...new Set(recusados.map((r) => celName(r.cel)))].slice(0, 3).join(', ');
+      const restoR = recusados.length > 3 ? ' +' + (recusados.length - 3) : '';
+      toast(ok + ' gravado' + (ok > 1 ? 's' : '') + ' na faixa ' + faixaTxt +
+        ' · ' + recusados.length + ' bloqueado' + (recusados.length > 1 ? 's' : '') +
+        ' (' + nomesR + restoR + ')');
+    } else {
+      toast(ok + ' lançamento' + (ok > 1 ? 's' : '') + ' gravado' + (ok > 1 ? 's' : '') + ' na faixa ' + faixaTxt);
+    }
+  }
 }
 async function registrarParada(cel, ini, fim, motivo, obs) {
   if (isNaN(toMin(ini))) return toast('Informe o início da parada.');
@@ -2365,7 +2399,7 @@ document.addEventListener('change', async (ev) => {
   //      UMA vez por sessão — se voltar igual, para de tentar e avisa;
   //   2) a comparação ignora espaços/quebras e usa o maior valor "data-hora",
   //      então um version.txt mais novo nunca fica em loop.
-  const VERSAO = '20261125c'; // DEVE casar com version.txt a cada publicação
+  const VERSAO = '20261125d'; // DEVE casar com version.txt a cada publicação
   const ARQ = 'version.txt';
   const INTERVALO = 120000; // 2 min
   let avisando = false;
