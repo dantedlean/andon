@@ -1740,6 +1740,11 @@ async function enviaApontamentosDoDia() {
         qtd: qA,
         cel: celA,
         celNome: String(cfgA.nome || ''),
+        // FAIXA (25/11): o app SABE a faixa escolhida pelo operador (`a.faixa`),
+        // mas não enviava. A rota de pendências deduzia pelo horário e errava
+        // quando a pessoa lançava depois: hoje 5 lançamentos da 07:30 foram
+        // feitos às 10:17 e a 07:30 ficou "pendente" tendo produção.
+        faixa: (typeof a.faixa === 'number' ? a.faixa : null),
         hora: String(a.criado || ''),
         quem: (() => {
           try {
@@ -2343,7 +2348,7 @@ document.addEventListener('change', async (ev) => {
   //      UMA vez por sessão — se voltar igual, para de tentar e avisa;
   //   2) a comparação ignora espaços/quebras e usa o maior valor "data-hora",
   //      então um version.txt mais novo nunca fica em loop.
-  const VERSAO = '20261124d'; // DEVE casar com version.txt a cada publicação
+  const VERSAO = '20261125a'; // DEVE casar com version.txt a cada publicação
   const ARQ = 'version.txt';
   const INTERVALO = 120000; // 2 min
   let avisando = false;
