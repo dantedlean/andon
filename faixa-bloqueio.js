@@ -87,18 +87,25 @@
     // tabela `perfis` do Supabase, que o app já carrega em S.perfisMap.
     var nomeReal = ''
     try {
-      var uid = String((s.user && s.user.id) || '')
-      var pm = (window.S && window.S.perfisMap) || null
-      if (pm && uid && pm[uid]) nomeReal = String(pm[uid].nome || '')
-      if (!nomeReal && pm) {
-        for (var k in pm) {
-          if (!pm.hasOwnProperty(k)) continue
-          if (String(pm[k].email || '').toLowerCase() === email.toLowerCase()) {
-            nomeReal = String(pm[k].nome || '')
-            break
+      // 1) cache do perfil (buscado no banco por buscarPerfil)
+      if (_meuPerfil && _meuPerfil.nome) nomeReal = String(_meuPerfil.nome)
+      // 2) o mapa do app, se já carregou
+      if (!nomeReal) {
+        var uid = String((s.user && s.user.id) || '')
+        var pm = (window.S && window.S.perfisMap) || null
+        if (pm && uid && pm[uid] && pm[uid].nome) nomeReal = String(pm[uid].nome)
+        if (!nomeReal && pm) {
+          for (var k in pm) {
+            if (!pm.hasOwnProperty(k)) continue
+            if (String(pm[k].email || '').toLowerCase() === email.toLowerCase()) {
+              nomeReal = String(pm[k].nome || '')
+              break
+            }
           }
         }
       }
+      // 3) dispara a busca e usa na próxima chamada
+      if (!nomeReal && _meuPerfil === null) buscarPerfil()
     } catch (e) {}
     _eu = {
       id: String((s.user && s.user.id) || ''),
@@ -172,61 +179,72 @@
   var EMAILS_VINHEDO = { 'projetos.sp@dlean.com.br': true }
   var ADMINS_UIDS = null // preenchido a partir de S.perfisMap (papel do perfil)
 
-  // O papel vem do banco, NÃO do app: este script roda antes de o app montar
-  // S.perfisMap, e depender dele fazia um admin ser tratado como operador.
-  var _meuPapel = null // cache: null = ainda não buscado
-  var _papelBuscando = false
+  // ── MEU PERFIL (nome + papel), buscado NO BANCO ────────────────────────────
+  // Este script roda ANTES de o app montar S.perfisMap. Depender dele fazia:
+  //   • um admin ser tratado como operador (corrigido em 20261125f)
+  //   • a justificativa gravar o PREFIXO DO E-MAIL em vez do nome — voltou a
+  //     acontecer em 25/11 14:03 ('qualidadedlean' em vez de 'Marcos')
+  // Agora nome e papel vêm da mesma consulta, feita com a sessão do usuário.
+  var _meuPerfil = null // { nome, papel } | null = ainda não buscado
+  var _perfilBuscando = false
   var SB_URL = 'https://pntmmydzxbdxjtyglwlh.supabase.co'
   var SB_ANON = 'sb_publishable_HrKp9FJkJHSOkKR3BLHjdw_-09h_KxF'
 
-  function buscarPapel(cb) {
-    if (_meuPapel !== null) { if (cb) cb(_meuPapel); return }
-    // tenta o que o app já carregou (rápido)
+  function buscarPerfil(cb) {
+    if (_meuPerfil !== null) { if (cb) cb(_meuPerfil); return }
+
+    // 1) o que o app já carregou (rápido, quando disponível)
     try {
       var me0 = eu()
       var pm0 = (window.S && window.S.perfisMap) || null
-      if (pm0 && me0 && me0.id && pm0[me0.id] && pm0[me0.id].papel) {
-        _meuPapel = String(pm0[me0.id].papel)
-        if (cb) cb(_meuPapel)
+      if (pm0 && me0 && me0.id && pm0[me0.id] && (pm0[me0.id].nome || pm0[me0.id].papel)) {
+        _meuPerfil = { nome: String(pm0[me0.id].nome || ''), papel: String(pm0[me0.id].papel || '') }
+        if (cb) cb(_meuPerfil)
         return
       }
-      if (window.S && window.S.perfil && window.S.perfil.papel) {
-        _meuPapel = String(window.S.perfil.papel)
-        if (cb) cb(_meuPapel)
+      if (window.S && window.S.perfil && (window.S.perfil.nome || window.S.perfil.papel)) {
+        _meuPerfil = { nome: String(window.S.perfil.nome || ''), papel: String(window.S.perfil.papel || '') }
+        if (cb) cb(_meuPerfil)
         return
       }
     } catch (e0) {}
 
-    // busca direto no Supabase com a sessão do usuário
-    if (_papelBuscando) { if (cb) cb(_meuPapel || ''); return }
-    _papelBuscando = true
+    // 2) busca no banco
+    if (_perfilBuscando) { if (cb) cb(_meuPerfil || { nome: '', papel: '' }); return }
+    _perfilBuscando = true
     var me = eu()
-    if (!me.id || !me.token) { _papelBuscando = false; if (cb) cb(''); return }
+    if (!me.id || !me.token) {
+      _perfilBuscando = false
+      if (cb) cb({ nome: '', papel: '' })
+      return
+    }
     fetch(SB_URL + '/rest/v1/perfis?select=user_id,nome,email,papel', {
       headers: { apikey: SB_ANON, Authorization: 'Bearer ' + me.token },
     })
       .then(function (r) { return r.ok ? r.json() : null })
       .then(function (rows) {
-        var achou = ''
+        var achou = { nome: '', papel: '' }
         if (Array.isArray(rows)) {
           for (var i = 0; i < rows.length; i++) {
             if (String(rows[i].user_id) === String(me.id)) {
-              achou = String(rows[i].papel || '')
+              achou = { nome: String(rows[i].nome || ''), papel: String(rows[i].papel || '') }
               break
             }
           }
         }
-        _meuPapel = achou
-        _papelBuscando = false
+        _meuPerfil = achou
+        _perfilBuscando = false
         if (cb) cb(achou)
       })
-      .catch(function () { _papelBuscando = false; if (cb) cb('') })
+      .catch(function () {
+        _perfilBuscando = false
+        if (cb) cb({ nome: '', papel: '' })
+      })
   }
 
   function papelDoUsuario() {
-    // devolve o que já sabemos; se ainda não buscou, dispara em segundo plano
-    if (_meuPapel === null) buscarPapel()
-    return _meuPapel || ''
+    if (_meuPerfil === null) buscarPerfil()
+    return (_meuPerfil && _meuPerfil.papel) || ''
   }
 
   function ehAdmin() {
@@ -562,24 +580,28 @@
   }
 
   function salvar(p, motivo, modal, painelPai) {
-    var me = eu()
-    var corpo = {
-      dia: p.dia,
-      celula: p.celula,
-      celula_nome: p.celula_nome,
-      unidade: String(p.unidade || 'C'),
-      faixa_ini: p.faixa_ini,
-      faixa_fim: p.faixa_fim,
-      faixa_idx: p.faixa_idx,
-      motivo: motivo,
-      obs: '',
-      tipo: p.tipo,
-      qtd_apontada: p.produzido,
-      meta_faixa: p.meta,
-      quem: me.nome || me.email,
-      quem_id: me.id,
-    }
-    fetch(API + '/backend/v1/compass2/justificativa', {
+    // O NOME PRECISA ESTAR RESOLVIDO ANTES DE GRAVAR (25/11, 2ª vez).
+    // Antes daqui, `eu().nome` caía no prefixo do e-mail ('qualidadedlean')
+    // porque S.perfisMap ainda não existia. Agora esperamos o perfil do banco.
+    buscarPerfil(function () {
+      var me = eu()
+      var corpo = {
+        dia: p.dia,
+        celula: p.celula,
+        celula_nome: p.celula_nome,
+        unidade: String(p.unidade || 'C'),
+        faixa_ini: p.faixa_ini,
+        faixa_fim: p.faixa_fim,
+        faixa_idx: p.faixa_idx,
+        motivo: motivo,
+        obs: '',
+        tipo: p.tipo,
+        qtd_apontada: p.produzido,
+        meta_faixa: p.meta,
+        quem: me.nome || me.email,
+        quem_id: me.id,
+      }
+      fetch(API + '/backend/v1/compass2/justificativa', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(corpo),
@@ -599,6 +621,7 @@
           if (b) b.textContent = 'Erro: ' + e.message
         }
       })
+    })
   }
 
   // ── TRAVA DO BOTÃO DE LANÇAR ───────────────────────────────────────────────
