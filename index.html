@@ -987,8 +987,25 @@ function tuUpdate() {
   });
   $('#tu-mx').innerHTML = h + '</div>';
   const regs = S.apont.filter((a) => a.faixa === i).sort((a, b) => celName(a.cel).localeCompare(celName(b.cel)) || String(a.criado).localeCompare(String(b.criado)));
+  // JUSTIFICATIVAS DA FAIXA (25/11, pedido Dlean): a célula que foi justificada
+  // precisa aparecer aqui, junto dos lançamentos, com célula, motivo e quem
+  // lançou — e poder ser cancelada (cancelar devolve a faixa a pendente).
+  const justs = (window.FAIXA_JUST && window.FAIXA_JUST.daFaixa) ? window.FAIXA_JUST.daFaixa(i) : [];
+  const linhasJust = justs.map(function (j) {
+    const nomeJ = String(j.celula_nome || j.celula || '');
+    const motivoJ = String(j.motivo || '');
+    const quemJ = String(j.quem || '');
+    return '<div class="reg" style="background:#fef3c7;border-left:3px solid #f59e0b">' +
+      '<span>🔒 ' + esc(nomeJ) + '</span>' +
+      '<span>' + esc(motivoJ) + (quemJ ? ' · <span class="muted">👤 ' + esc(quemJ) + '</span>' : '') + '</span>' +
+      '<button type="button" class="btn" data-just-cancel="' + esc(j.id) + '" data-just-cel="' + esc(nomeJ) + '" ' +
+      'data-just-motivo="' + esc(motivoJ) + '" style="font-size:.78rem;padding:3px 9px">Cancelar</button>' +
+      '</div>';
+  }).join('');
   $('#tu-regs').innerHTML = '<h2 style="margin-bottom:8px">Lançamentos da faixa ' + esc(F[i].ini) + '–' + esc(F[i].fim) + '</h2>' +
-    (regs.map((a) => regRow(a)).join('') || '<p class="muted">Nenhum lançamento nesta faixa.</p>');
+    (regs.map((a) => regRow(a)).join('') || '') +
+    linhasJust +
+    (!regs.length && !justs.length ? '<p class="muted">Nenhum lançamento nesta faixa.</p>' : '');
 }
 function regRow(a, showFaixa) {
   const F = faixas();
@@ -2348,7 +2365,7 @@ document.addEventListener('change', async (ev) => {
   //      UMA vez por sessão — se voltar igual, para de tentar e avisa;
   //   2) a comparação ignora espaços/quebras e usa o maior valor "data-hora",
   //      então um version.txt mais novo nunca fica em loop.
-  const VERSAO = '20261125a'; // DEVE casar com version.txt a cada publicação
+  const VERSAO = '20261125b'; // DEVE casar com version.txt a cada publicação
   const ARQ = 'version.txt';
   const INTERVALO = 120000; // 2 min
   let avisando = false;
