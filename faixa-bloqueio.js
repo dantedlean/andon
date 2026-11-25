@@ -152,6 +152,23 @@
     return res
   }
 
+  // ── UNIDADE DA CÉLULA (correção 25/11) ────────────────────────────────────
+  // Antes a unidade era deduzida do ENDEREÇO da tela (#apontar-<cel>). Na tela
+  // "Apontamento" (tabela unificada) o endereço é #apontamento, o regex não
+  // casava e caía no padrão 'C' — por isso lançar em Vinhedo era bloqueado
+  // pelas pendências de Curitiba (pedido Dlean: as travas são independentes).
+  // Agora a unidade vem da PRÓPRIA CÉLULA que se está lançando.
+  var CELULAS_VINHEDO = { CCNTI3: true }
+
+  function unidadeDaCelula(cel) {
+    return CELULAS_VINHEDO[String(cel || '').trim()] ? 'V' : 'C'
+  }
+
+  // A célula está bloqueada nesta faixa? (null = livre)
+  function celulaBloqueada(cel, faixaIni) {
+    return faixaBloqueada(unidadeDaCelula(cel), faixaIni)
+  }
+
   // A faixa 'ini' desta unidade está bloqueada?
   // ── CRONOLOGIA (correção 24/11) ────────────────────────────────────────────
   // A regra anterior bloqueava "da faixa pendente em diante" — inclusive a
@@ -503,15 +520,12 @@
         }
       }
 
-      // unidade: o app tem URLs '#apontar-<cel>' e a célula sabe a unidade.
+      // unidade: vem da CÉLULA aberta (não do endereço). Ver unidadeDaCelula.
       var un = 'C'
       try {
         var h = String(location.hash || '')
         var mm = /apontar-([A-Za-z0-9]+)/.exec(h)
-        if (mm) {
-          // células de Vinhedo conhecidas
-          if (mm[1] === 'CCNTI3') un = 'V'
-        }
+        if (mm) un = unidadeDaCelula(mm[1])
       } catch (e0) {}
 
       if (!iniFaixa) return // não conseguimos ler: não bloqueia
@@ -613,12 +627,12 @@
             }
             if (!ini) return
 
-            // unidade pela célula aberta (Vinhedo = CCNTI3)
+            // unidade pela CÉLULA aberta (não pelo endereço)
             var un = 'C'
             try {
               var hh2 = String(location.hash || '')
               var mm2 = /apontar-([A-Za-z0-9]+)/.exec(hh2)
-              if (mm2 && mm2[1] === 'CCNTI3') un = 'V'
+              if (mm2) un = unidadeDaCelula(mm2[1])
             } catch (e0) {}
 
             var b = faixaBloqueada(un, ini)
@@ -691,6 +705,23 @@
   // justificativas disponíveis para ela, para aparecerem junto dos apontamentos
   // (com célula, motivo, quem lançou e botão Cancelar).
   function publicarParaLista() {
+    try {
+      // API usada pela tabela unificada (tuLancar) para decidir CÉLULA a CÉLULA.
+      // `bloqueada(cel, faixaIni)` devolve null (livre) ou o objeto do bloqueio.
+      window.FAIXA_BLOQ = {
+        unidadeDaCelula: unidadeDaCelula,
+        bloqueada: function (cel, faixaIni) { return celulaBloqueada(cel, faixaIni) },
+        pendenciasDaCelula: function (cel, faixaIni) {
+          var b = celulaBloqueada(cel, faixaIni)
+          if (!b) return []
+          var u = unidadeDaCelula(cel)
+          return (b.pendencias || []).filter(function (p) {
+            return String(p.unidade || 'C') === u
+          })
+        },
+        ativo: function () { return hoje() >= CORTE },
+      }
+    } catch (e) {}
     try {
       window.FAIXA_JUST = {
         todas: function () { return _justificativas.slice() },
