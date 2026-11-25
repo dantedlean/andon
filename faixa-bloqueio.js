@@ -622,12 +622,126 @@
         },
         true, // capture: roda ANTES do handler do app
       )
+      // botão Cancelar das justificativas na lista de lançamentos
+      document.addEventListener(
+        'click',
+        function (ev) {
+          try {
+            var alvo = ev.target
+            if (!alvo || !alvo.closest) return
+            var btn = alvo.closest('[data-just-cancel]')
+            if (!btn) return
+            ev.preventDefault()
+            ev.stopPropagation()
+            ev.stopImmediatePropagation()
+            cancelarJustificativa(
+              btn.getAttribute('data-just-cancel'),
+              btn.getAttribute('data-just-cel'),
+              btn.getAttribute('data-just-motivo'),
+            )
+          } catch (e) {}
+        },
+        true,
+      )
       window.__faixaTravaLancamento = true
     } catch (e) {}
   }
 
+  // ── JUSTIFICATIVAS DO DIA (25/11) ──────────────────────────────────────────
+  // Pedido Dlean: a célula que foi JUSTIFICADA precisa aparecer na lista de
+  // lançamentos da faixa — com nome, motivo e quem lançou — e poder ser
+  // cancelada (o que devolve a faixa a pendente e re-bloqueia).
+  var _justificativas = []
+
+  function carregarJustificativas(cb) {
+    fetch(
+      API +
+        '/api/collections/andon_justificativas/records?perPage=300&sort=faixa_idx&filter=' +
+        encodeURIComponent("dia='" + hoje() + "'"),
+    )
+      .then(function (r) { return r.ok ? r.json() : null })
+      .then(function (d) {
+        _justificativas = (d && d.items) || []
+        publicarParaLista()
+        if (cb) cb()
+      })
+      .catch(function () { if (cb) cb() })
+  }
+
+  // ── PONTE COM A LISTA DE LANÇAMENTOS (25/11) ───────────────────────────────
+  // A lista "Lançamentos da faixa" vive no index.html. Aqui deixamos as
+  // justificativas disponíveis para ela, para aparecerem junto dos apontamentos
+  // (com célula, motivo, quem lançou e botão Cancelar).
+  function publicarParaLista() {
+    try {
+      window.FAIXA_JUST = {
+        todas: function () { return _justificativas.slice() },
+        daFaixa: function (fx) {
+          var out = []
+          for (var i = 0; i < _justificativas.length; i++) {
+            if (Number(_justificativas[i].faixa_idx) === Number(fx)) out.push(_justificativas[i])
+          }
+          return out
+        },
+        recarregar: function () { carregarJustificativas(render) },
+      }
+    } catch (e) {}
+  }
+
+  // ── CANCELAR JUSTIFICATIVA (com o aviso combinado) ─────────────────────────
+  // Cancelar devolve a faixa a PENDENTE e re-bloqueia as seguintes. Por isso
+  // pede confirmação explícita e diz exatamente o efeito.
+  function cancelarJustificativa(id, celula, motivo) {
+    var msg =
+      'Cancelar esta justificativa?\n\n' +
+      celula + '\n' +
+      'Motivo: ' + (motivo || '(sem motivo)') + '\n\n' +
+      'Ao cancelar, esta faixa volta a ficar PENDENTE e BLOQUEIA o lançamento ' +
+      'das faixas seguintes desta unidade até que seja resolvida.'
+    if (!window.confirm(msg)) return
+    // A coleção não aceita DELETE do cliente (deleteRule=null): quem cancela é
+    // a rota do servidor, que registra quem cancelou.
+    fetch(API + '/backend/v1/compass2/justificativa-cancelar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        confirmar: 'CANCELAR',
+        id: String(id || ''),
+        quem: (function () { try { return (eu() || {}).nome || '' } catch (e) { return '' } })(),
+      }),
+    })
+      .then(function (r) { return r.ok ? r.json() : null })
+      .catch(function () { return null })
+      .then(function (d) {
+        if (!d || !d.ok) {
+          try {
+            alert('Não foi possível cancelar agora. Tente de novo em instantes.')
+          } catch (e) {}
+        }
+        carregarJustificativas(function () {
+          buscarPendencias()
+        })
+      })
+  }
+
+  function justificativaDa(cel, faixaIdx) {
+    for (var i = 0; i < _justificativas.length; i++) {
+      var j = _justificativas[i]
+      if (String(j.celula) !== String(cel)) continue
+      if (Number(j.faixa_idx) !== Number(faixaIdx)) continue
+      return j
+    }
+    return null
+  }
+
   function buscar() {
     if (hoje() < CORTE) return
+    carregarJustificativas(function () {
+      buscarPendencias()
+    })
+  }
+
+  function buscarPendencias() {
     fetch(API + '/backend/v1/compass2/pendencias?data=' + hoje())
       .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status)
