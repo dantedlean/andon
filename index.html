@@ -1467,6 +1467,20 @@ async function saveProg(celId) {
   try {
     await S.db.doc('config/celulas').set({ celulas: D.celulas.map((c) => ({ id: c.id, nome: String(c.nome || c.id).trim(), operadores: Math.max(0, +c.operadores || 0), postos: Math.max(0, +c.postos || 0) })) });
     await S.db.doc('dias/' + S.date).set({ data: S.date, faixas: faixasOrd, cells, atualizado: new Date().toISOString() });
+    // ── SINCRONIZAR A CONFIGURAÇÃO COM O ALERTA (25/11) ──────────────────────
+    // Antes, `configDia` só viajava junto com um apontamento. Ativar uma célula
+    // e salvar a programação NÃO chegava ao Skip — a célula continuava inativa
+    // lá e nunca era cobrada (foi o caso de Montagem Vinhedo hoje: ativa no
+    // Supabase às 15:01, e o Skip ainda com `ativa:false` de 10:46).
+    // Agora, ao salvar a programação, enviamos só a configuração.
+    try {
+      const cfg = { faixas: faixasOrd, cells: cells };
+      await fetch(APONT_API + '/backend/v1/compass2/apontamento-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: S.date, configDia: cfg }),
+      });
+    } catch (eCfg) { /* se falhar, o próximo lançamento leva junto */ }
     S.draftDirty = false; S.remoteChanged = false; S.draft = null;
     if (celId) {
       const cx = D.celulas.find((c) => c.id === celId) || {};
@@ -2416,7 +2430,7 @@ document.addEventListener('change', async (ev) => {
   //      UMA vez por sessão — se voltar igual, para de tentar e avisa;
   //   2) a comparação ignora espaços/quebras e usa o maior valor "data-hora",
   //      então um version.txt mais novo nunca fica em loop.
-  const VERSAO = '20261125j'; // DEVE casar com version.txt a cada publicação
+  const VERSAO = '20261125k'; // DEVE casar com version.txt a cada publicação
   const ARQ = 'version.txt';
   const INTERVALO = 120000; // 2 min
   let avisando = false;
