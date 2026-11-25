@@ -927,6 +927,53 @@
           })
         },
         ativo: function () { return hoje() >= CORTE },
+        // JUSTIFICAR DIRETO DO PC DA CÉLULA (25/11, pedido Dlean):
+        // abre o mesmo modal de motivo usado pelo painel, montando a pendência
+        // daquela célula+faixa. Fecha o ciclo completo: motivo -> grava ->
+        // recarrega o estado, sem sair da tela do PC.
+        justificar: function (celId, faixaIdx) {
+          var lista = (_dados && _dados.pendencias) || []
+          var alvo = null
+          for (var i = 0; i < lista.length; i++) {
+            if (String(lista[i].celula) === String(celId) &&
+                Number(lista[i].faixa_idx) === Number(faixaIdx)) { alvo = lista[i]; break }
+          }
+          if (!alvo) {
+            // a faixa pode não estar na lista do servidor (ex.: célula ativada
+            // depois) — monta a partir da configuração do dia
+            var fx = (_dados && _dados.faixas) || []
+            var f = fx[Number(faixaIdx)]
+            if (!f) { try { toast('Faixa não encontrada') } catch (e) {} return false }
+            alvo = {
+              dia: hoje(),
+              celula: String(celId),
+              celula_nome: (function () {
+                // nome da célula: config do dia > mapa do app > id
+                try {
+                  var cfg = (_dados && _dados.cells) || {}
+                  if (cfg[celId] && cfg[celId].nome) return String(cfg[celId].nome)
+                } catch (e) {}
+                try {
+                  var S = window.S
+                  var cs = (S && S.cfg && S.cfg.celulas) || []
+                  for (var i2 = 0; i2 < cs.length; i2++) {
+                    if (String(cs[i2].id) === String(celId)) return String(cs[i2].nome || celId)
+                  }
+                } catch (e2) {}
+                return String(celId)
+              })(),
+              unidade: unidadeDaCelula(celId),
+              faixa_idx: Number(faixaIdx),
+              faixa_ini: String(f.ini || ''),
+              faixa_fim: String(f.fim || ''),
+              produzido: 0,
+              meta: 0,
+              tipo: 'zero',
+            }
+          }
+          abrirMotivos(alvo, null)
+          return true
+        },
       }
     } catch (e) {}
   }
