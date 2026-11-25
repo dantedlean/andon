@@ -886,18 +886,20 @@
   // A lista "Lançamentos da faixa" vive no index.html. Aqui deixamos as
   // justificativas disponíveis para ela, para aparecerem junto dos apontamentos
   // (com célula, motivo, quem lançou e botão Cancelar).
-  function publicarParaLista() {
+  // A API é montada uma vez e fica disponível desde o início. Antes ela só
+  // nascia dentro de publicarParaLista(), que roda após o primeiro fetch —
+  // e o tuLancar podia rodar antes disso (bloqueio virando permissão negada).
+  var _apiMontada = false
+  function montarApi() {
+    if (_apiMontada) return
+    _apiMontada = true
     try {
-      // API usada pela tabela unificada (tuLancar) para decidir CÉLULA a CÉLULA.
-      // `bloqueada(cel, faixaIni)` devolve null (livre) ou o objeto do bloqueio.
       window.FAIXA_BLOQ = {
         unidadeDaCelula: unidadeDaCelula,
         bloqueada: function (cel, faixaIni) { return celulaBloqueada(cel, faixaIni) },
-        // permissão por unidade (lançar E justificar)
         podeAgirNaUnidade: podeAgirNaUnidade,
         podeAgirNaCelula: podeAgirNaCelula,
         ehAdmin: ehAdmin,
-        // por que não pode (mensagem pronta para o app usar)
         motivoSemPermissao: function (cel) {
           var u = unidadeDaCelula(cel)
           var nome = u === 'V' ? 'Vinhedo' : 'Curitiba'
@@ -915,6 +917,10 @@
         ativo: function () { return hoje() >= CORTE },
       }
     } catch (e) {}
+  }
+
+  function publicarParaLista() {
+    montarApi()
     try {
       window.FAIXA_JUST = {
         todas: function () { return _justificativas.slice() },
@@ -929,6 +935,7 @@
       }
     } catch (e) {}
   }
+
 
   // ── CANCELAR JUSTIFICATIVA (com o aviso combinado) ─────────────────────────
   // Cancelar devolve a faixa a PENDENTE e re-bloqueia as seguintes. Por isso
@@ -1061,6 +1068,7 @@
         if (++tentativas > 240) return
         return setTimeout(tenta, 500)
       }
+      montarApi()
       interceptarLancamento()
       buscar()
       if (_timer) clearInterval(_timer)
