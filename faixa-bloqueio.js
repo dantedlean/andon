@@ -172,24 +172,61 @@
   var EMAILS_VINHEDO = { 'projetos.sp@dlean.com.br': true }
   var ADMINS_UIDS = null // preenchido a partir de S.perfisMap (papel do perfil)
 
-  function papelDoUsuario() {
+  // O papel vem do banco, NÃO do app: este script roda antes de o app montar
+  // S.perfisMap, e depender dele fazia um admin ser tratado como operador.
+  var _meuPapel = null // cache: null = ainda não buscado
+  var _papelBuscando = false
+  var SB_URL = 'https://pntmmydzxbdxjtyglwlh.supabase.co'
+  var SB_ANON = 'sb_publishable_HrKp9FJkJHSOkKR3BLHjdw_-09h_KxF'
+
+  function buscarPapel(cb) {
+    if (_meuPapel !== null) { if (cb) cb(_meuPapel); return }
+    // tenta o que o app já carregou (rápido)
     try {
-      var me = eu()
-      var pm = (window.S && window.S.perfisMap) || null
-      if (pm && me && me.id && pm[me.id] && pm[me.id].papel) return String(pm[me.id].papel)
-      // fallback por e-mail
-      if (pm) {
-        for (var k in pm) {
-          if (!pm.hasOwnProperty(k)) continue
-          if (String(pm[k].email || '').toLowerCase() === String(me.email || '').toLowerCase()) {
-            return String(pm[k].papel || '')
+      var me0 = eu()
+      var pm0 = (window.S && window.S.perfisMap) || null
+      if (pm0 && me0 && me0.id && pm0[me0.id] && pm0[me0.id].papel) {
+        _meuPapel = String(pm0[me0.id].papel)
+        if (cb) cb(_meuPapel)
+        return
+      }
+      if (window.S && window.S.perfil && window.S.perfil.papel) {
+        _meuPapel = String(window.S.perfil.papel)
+        if (cb) cb(_meuPapel)
+        return
+      }
+    } catch (e0) {}
+
+    // busca direto no Supabase com a sessão do usuário
+    if (_papelBuscando) { if (cb) cb(_meuPapel || ''); return }
+    _papelBuscando = true
+    var me = eu()
+    if (!me.id || !me.token) { _papelBuscando = false; if (cb) cb(''); return }
+    fetch(SB_URL + '/rest/v1/perfis?select=user_id,nome,email,papel', {
+      headers: { apikey: SB_ANON, Authorization: 'Bearer ' + me.token },
+    })
+      .then(function (r) { return r.ok ? r.json() : null })
+      .then(function (rows) {
+        var achou = ''
+        if (Array.isArray(rows)) {
+          for (var i = 0; i < rows.length; i++) {
+            if (String(rows[i].user_id) === String(me.id)) {
+              achou = String(rows[i].papel || '')
+              break
+            }
           }
         }
-      }
-      // o próprio perfil carregado pelo app
-      if (window.S && window.S.perfil && window.S.perfil.papel) return String(window.S.perfil.papel)
-    } catch (e) {}
-    return ''
+        _meuPapel = achou
+        _papelBuscando = false
+        if (cb) cb(achou)
+      })
+      .catch(function () { _papelBuscando = false; if (cb) cb('') })
+  }
+
+  function papelDoUsuario() {
+    // devolve o que já sabemos; se ainda não buscou, dispara em segundo plano
+    if (_meuPapel === null) buscarPapel()
+    return _meuPapel || ''
   }
 
   function ehAdmin() {
@@ -918,8 +955,12 @@
 
   function buscar() {
     if (hoje() < CORTE) return
-    carregarJustificativas(function () {
-      buscarPendencias()
+    // o papel precisa estar resolvido ANTES de desenhar: um admin tratado como
+    // operador veria "só projetos.sp lança em Vinhedo" e ficaria travado.
+    buscarPapel(function () {
+      carregarJustificativas(function () {
+        buscarPendencias()
+      })
     })
   }
 
