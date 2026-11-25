@@ -168,9 +168,20 @@
   // pelas pendências de Curitiba (pedido Dlean: as travas são independentes).
   // Agora a unidade vem da PRÓPRIA CÉLULA que se está lançando.
   var CELULAS_VINHEDO = { CCNTI3: true }
+  // GRUPO DE BLOQUEIO (25/11, decisão Dlean): cada Montagem bloqueia só a si
+  // mesma. A Montagem não pode ser penalizada pela falta de lançamento das
+  // outras marcações (Corte, Trilho, Roletes...) — senão não dá para apontar
+  // a produção dela.
+  //   V = CCNTI3  Montagem Vinhedo
+  //   M = CF8ZX4  Montagem Curitiba
+  //   C = demais  (continuam todas juntas, como estão hoje)
+  var CELULAS_MONTAGEM_C = { CF8ZX4: true }
 
   function unidadeDaCelula(cel) {
-    return CELULAS_VINHEDO[String(cel || '').trim()] ? 'V' : 'C'
+    var k = String(cel || '').trim()
+    if (CELULAS_VINHEDO[k]) return 'V'
+    if (CELULAS_MONTAGEM_C[k]) return 'M'
+    return 'C'
   }
 
   // ── QUEM PODE LANÇAR E JUSTIFICAR EM CADA UNIDADE (25/11, decisão Dlean) ──
@@ -286,6 +297,13 @@
     return 'Vinhedo lança apenas em Vinhedo'
   }
 
+  // Nome legível do grupo de bloqueio (banner, painel, textos)
+  function nomeDoGrupo(u) {
+    if (u === 'V') return 'MONTAGEM VINHEDO'
+    if (u === 'M') return 'MONTAGEM CURITIBA'
+    return 'OUTRAS CÉLULAS'
+  }
+
   // A célula está bloqueada nesta faixa? (null = livre)
   function celulaBloqueada(cel, faixaIni) {
     return faixaBloqueada(unidadeDaCelula(cel), faixaIni)
@@ -383,8 +401,9 @@
       porUn[uu].push(lista[iu])
     }
     var CORES = {
-      C: { bg: '#b91c1c', nome: 'CURITIBA' },
-      V: { bg: '#7c3aed', nome: 'VINHEDO' },
+      C: { bg: '#b91c1c', nome: 'OUTRAS CÉLULAS' },
+      M: { bg: '#0369a1', nome: 'MONTAGEM CURITIBA' },
+      V: { bg: '#7c3aed', nome: 'MONTAGEM VINHEDO' },
     }
     var todasUn = Object.keys(porUn).sort()
     var adm = ehAdmin()
@@ -408,7 +427,7 @@
           'cursor:pointer">Ver e resolver</button>'
       } else {
         botao = '<span style="opacity:.78;font-size:11.5px;font-style:italic">só ' +
-          (u === 'V' ? 'projetos.sp@dlean.com.br' : 'Curitiba') + '</span>'
+          (u === 'V' ? 'projetos.sp@dlean.com.br' : 'as demais células') + '</span>'
       }
       return '<div style="display:flex;align-items:center;gap:12px;padding:9px 15px;' +
         'flex-wrap:wrap;background:' + cor.bg + ';border-bottom:1px solid rgba(255,255,255,.18)">' +
@@ -475,7 +494,7 @@
         faixaAtual = ''
         cab += '<div style="background:#1f2937;color:#fff;padding:9px 14px;font-weight:800;' +
           'font-size:12.5px;letter-spacing:.4px">' +
-          (un === 'V' ? 'VINHEDO' : 'CURITIBA') + '</div>'
+          nomeDoGrupo(un) + '</div>'
       }
       if (String(p.faixa_ini) !== faixaAtual) {
         faixaAtual = String(p.faixa_ini)
