@@ -276,6 +276,16 @@
     return podeAgirNaUnidade(unidadeDaCelula(cel))
   }
 
+  // Mensagem de recusa por falta de permissão.
+  // Existe como FUNÇÃO (não só dentro do objeto FAIXA_BLOQ): a trava e o
+  // interceptor chamam direto, e antes disso não havia função — era mais um
+  // ponto de ReferenceError que derrubava o ciclo.
+  function motivoSemPermissao(cel) {
+    var u = unidadeDaCelula(cel)
+    if (u === 'V') return 'Só projetos.sp@dlean.com.br lança em Vinhedo'
+    return 'Vinhedo lança apenas em Vinhedo'
+  }
+
   // A célula está bloqueada nesta faixa? (null = livre)
   function celulaBloqueada(cel, faixaIni) {
     return faixaBloqueada(unidadeDaCelula(cel), faixaIni)
@@ -907,12 +917,7 @@
         podeAgirNaUnidade: podeAgirNaUnidade,
         podeAgirNaCelula: podeAgirNaCelula,
         ehAdmin: ehAdmin,
-        motivoSemPermissao: function (cel) {
-          var u = unidadeDaCelula(cel)
-          var nome = u === 'V' ? 'Vinhedo' : 'Curitiba'
-          if (u === 'V') return 'Só projetos.sp@dlean.com.br lança em ' + nome
-          return 'Vinhedo lança apenas em Vinhedo'
-        },
+        motivoSemPermissao: motivoSemPermissao,
         pendenciasDaCelula: function (cel, faixaIni) {
           var b = celulaBloqueada(cel, faixaIni)
           if (!b) return []
@@ -994,7 +999,10 @@
     if (hoje() < CORTE) return
     // o papel precisa estar resolvido ANTES de desenhar: um admin tratado como
     // operador veria "só projetos.sp lança em Vinhedo" e ficaria travado.
-    buscarPapel(function () {
+    // ATENÇÃO: a função é buscarPerfil (nome + papel). Já se chamou buscarPapel;
+    // ao unificar as duas numa só, esta chamada ficou órfã e derrubava o ciclo
+    // inteiro — o banner e as justificativas desapareciam da tela.
+    buscarPerfil(function () {
       carregarJustificativas(function () {
         buscarPendencias()
       })
