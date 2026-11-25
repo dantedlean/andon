@@ -1462,7 +1462,10 @@ async function saveProg(celId) {
   const cells = {};
   D.celulas.forEach((c) => {
     const cp = D.cells[c.id]; if (!cp) return;
-    cells[c.id] = { ativa: cp.ativa !== false, metas: order.map((i) => Math.max(0, Math.round(+cp.metas[i] || 0))), produtos: cp.produtos.filter((p) => String(p.nome || '').trim()).map((p) => ({ nome: String(p.nome).trim(), destino: p.destino === 'PV' ? 'PV' : 'WARD', qtd: Math.max(0, Math.round(+p.qtd || 0)), cx: Math.max(0, Math.round(+p.cx || 0)), ini: p.ini || '', fim: p.fim || '' })) };
+    // `nome` incluído (25/11): a config gravava só {ativa, metas, produtos} e o
+    // alerta caía no id da célula — o operador via "L1", "CTJPOP" em vez de
+    // "Corte haste", "Trilho". O nome agora viaja junto.
+    cells[c.id] = { nome: String(c.nome || c.id).trim(), ativa: cp.ativa !== false, metas: order.map((i) => Math.max(0, Math.round(+cp.metas[i] || 0))), produtos: cp.produtos.filter((p) => String(p.nome || '').trim()).map((p) => ({ nome: String(p.nome).trim(), destino: p.destino === 'PV' ? 'PV' : 'WARD', qtd: Math.max(0, Math.round(+p.qtd || 0)), cx: Math.max(0, Math.round(+p.cx || 0)), ini: p.ini || '', fim: p.fim || '' })) };
   });
   try {
     await S.db.doc('config/celulas').set({ celulas: D.celulas.map((c) => ({ id: c.id, nome: String(c.nome || c.id).trim(), operadores: Math.max(0, +c.operadores || 0), postos: Math.max(0, +c.postos || 0) })) });
@@ -2430,7 +2433,7 @@ document.addEventListener('change', async (ev) => {
   //      UMA vez por sessão — se voltar igual, para de tentar e avisa;
   //   2) a comparação ignora espaços/quebras e usa o maior valor "data-hora",
   //      então um version.txt mais novo nunca fica em loop.
-  const VERSAO = '20261125k'; // DEVE casar com version.txt a cada publicação
+  const VERSAO = '20261125l'; // DEVE casar com version.txt a cada publicação
   const ARQ = 'version.txt';
   const INTERVALO = 120000; // 2 min
   let avisando = false;
