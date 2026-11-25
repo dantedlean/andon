@@ -1960,12 +1960,24 @@ async function tuLancar() {
       const ini = faixas()[i].ini;
       liberados = []; recusados = [];
       for (const it of items) {
+        // PERMISSÃO POR UNIDADE (25/11): quem não pode agir na unidade não lança
+        if (window.FAIXA_BLOQ.podeAgirNaCelula && !window.FAIXA_BLOQ.podeAgirNaCelula(it.cel)) {
+          recusados.push({ cel: it.cel, perm: true });
+          continue;
+        }
         const b = window.FAIXA_BLOQ.bloqueada(it.cel, ini);
         if (b) recusados.push({ cel: it.cel, b });
         else liberados.push(it);
       }
       if (!liberados.length) {
         const nomes = [...new Set(recusados.map((r) => celName(r.cel)))].slice(0, 3).join(', ');
+        const soPerm = recusados.every((r) => r.perm);
+        if (soPerm) {
+          const u = window.FAIXA_BLOQ.unidadeDaCelula(recusados[0].cel);
+          return toast(u === 'V'
+            ? 'Só projetos.sp@dlean.com.br lança em Vinhedo'
+            : 'Vinhedo lança apenas em Vinhedo');
+        }
         return toast('Faixa ' + ini + ' bloqueada: resolva ' + nomes);
       }
     }
@@ -1981,8 +1993,11 @@ async function tuLancar() {
     if (recusados.length) {
       const nomesR = [...new Set(recusados.map((r) => celName(r.cel)))].slice(0, 3).join(', ');
       const restoR = recusados.length > 3 ? ' +' + (recusados.length - 3) : '';
+      const nBloq = recusados.filter((r) => !r.perm).length;
+      const nPerm = recusados.filter((r) => r.perm).length;
+      const motivoTxt = (nPerm && !nBloq) ? 'sem permissão' : 'bloqueado';
       toast(ok + ' gravado' + (ok > 1 ? 's' : '') + ' na faixa ' + faixaTxt +
-        ' · ' + recusados.length + ' bloqueado' + (recusados.length > 1 ? 's' : '') +
+        ' · ' + recusados.length + ' ' + motivoTxt + (recusados.length > 1 ? 's' : '') +
         ' (' + nomesR + restoR + ')');
     } else {
       toast(ok + ' lançamento' + (ok > 1 ? 's' : '') + ' gravado' + (ok > 1 ? 's' : '') + ' na faixa ' + faixaTxt);
@@ -2285,8 +2300,10 @@ async function afterLogin(session) {
   S.session = session; S.uid = session.user.id;
   const { data: perfil } = await S.sb.from('perfis').select('*').eq('user_id', S.uid).maybeSingle();
   S.perfil = perfil || null; S.authLoading = false;
-  try { const { data: perfis } = await S.sb.from('perfis').select('user_id, nome, email');
-    S.perfisMap = {}; (perfis || []).forEach((u) => { S.perfisMap[u.user_id] = { nome: u.nome || '', email: u.email || '' }; });
+  try { const { data: perfis } = await S.sb.from('perfis').select('user_id, nome, email, papel');
+    // PAPEL (25/11): incluído para a permissão por unidade (admin x operador).
+    // Aditivo: quem lia nome/email continua lendo igual.
+    S.perfisMap = {}; (perfis || []).forEach((u) => { S.perfisMap[u.user_id] = { nome: u.nome || '', email: u.email || '', papel: u.papel || '' }; });
   } catch (e) { S.perfisMap = {}; }
   const nomePor = (uid) => { const u = S.perfisMap && S.perfisMap[uid]; return u ? (u.nome || u.email) : ''; };
   S.nomePor = nomePor;
@@ -2399,7 +2416,7 @@ document.addEventListener('change', async (ev) => {
   //      UMA vez por sessão — se voltar igual, para de tentar e avisa;
   //   2) a comparação ignora espaços/quebras e usa o maior valor "data-hora",
   //      então um version.txt mais novo nunca fica em loop.
-  const VERSAO = '20261125d'; // DEVE casar com version.txt a cada publicação
+  const VERSAO = '20261125e'; // DEVE casar com version.txt a cada publicação
   const ARQ = 'version.txt';
   const INTERVALO = 120000; // 2 min
   let avisando = false;
