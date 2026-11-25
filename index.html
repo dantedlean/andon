@@ -1176,7 +1176,12 @@ function regsDoPc(c, regs) {
   const now = nowMin();
   const x = calcCell(c, now);
   for (let k = 0; k < F.length; k++) {
-    if (x.frac[k] !== 0) continue                 // futura ou em curso
+    // x.frac vale 1 quando ENCERRADA e 0 quando futura (ver calcCell):
+    // `now >= fim ? 1 : now <= ini ? 0 : progresso`. Comparar com o fim é o
+    // único jeito seguro — a versão anterior usava frac!==0 e pulava justamente
+    // as faixas encerradas, então o botão nunca aparecia.
+    const fimK = toMin(F[k].fim)
+    if (!(isFinite(fimK) && now >= fimK)) continue // só faixa ENCERRADA cobra
     if ((x.real[k] || 0) !== 0) continue          // tem lançamento
     if (justPor[k]) continue                      // já justificada
     linhas.push(
@@ -2540,7 +2545,7 @@ document.addEventListener('change', async (ev) => {
   //      UMA vez por sessão — se voltar igual, para de tentar e avisa;
   //   2) a comparação ignora espaços/quebras e usa o maior valor "data-hora",
   //      então um version.txt mais novo nunca fica em loop.
-  const VERSAO = '20261125m'; // DEVE casar com version.txt a cada publicação
+  const VERSAO = '20261125n'; // DEVE casar com version.txt a cada publicação
   const ARQ = 'version.txt';
   const INTERVALO = 120000; // 2 min
   let avisando = false;
