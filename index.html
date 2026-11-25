@@ -261,6 +261,11 @@ body.tv .selcel{display:none}
 .mx .n{justify-content:flex-start;font-weight:700;padding-left:6px}
 .mx button{border:1px solid transparent;font-weight:600;width:100%}
 .mx .f{background:var(--line2);color:var(--faint)}
+/* FAIXA ENCERRADA SEM LANÇAMENTO E SEM JUSTIFICATIVA (25/11, pedido Dlean):
+   borda vermelha. A célula com zero SEM borda vermelha = foi justificada.
+   .f e futuro (não conta); .p e passado vazio (cobra). */
+.mx .p{background:var(--line2);color:var(--bad);border:2px solid var(--bad);font-weight:800}
+.mx .p.j{background:var(--line2);color:var(--ok);border:2px solid transparent}
 .mx .o{background:var(--ok-soft);color:var(--ok)}
 .mx .l{background:var(--bad-soft);color:var(--bad-ink)}
 .mx .m{background:var(--warn-soft);color:var(--warn-ink);border-color:#F0C877}
@@ -964,6 +969,20 @@ function vApont() {
     '<section class="panel"><div class="phead"><h2>Links dos PCs das células</h2><span class="muted">abra o link no PC de cada célula: ele já entra na célula certa</span></div>' + links + '</section>' +
   '</div>';
 }
+// A faixa (célula + índice) tem justificativa? Usa a ponte FAIXA_JUST que o
+// faixa-bloqueio.js publica (as justificativas do dia, vindas do servidor).
+function temJustificativa(celId, faixaIdx) {
+  try {
+    var J = window.FAIXA_JUST;
+    if (!J || typeof J.daFaixa !== 'function') return false;
+    var lista = J.daFaixa(faixaIdx) || [];
+    for (var i = 0; i < lista.length; i++) {
+      if (String(lista[i].celula) === String(celId)) return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
 function tuUpdate() {
   if (!$('#tu-mx')) return;
   const F = faixas(); const now = nowMin(); const i = S.tu.faixa;
@@ -977,11 +996,28 @@ function tuUpdate() {
   cells.forEach((x) => {
     h += '<span class="n">' + esc(x.c.nome) + '</span>';
     x.real.forEach((v, k) => {
+      // ── BORDA VERMELHA NA FAIXA COBRADA (25/11, pedido Dlean) ─────────────
+      // 'f' = faixa futura (não cobra). Antes, faixa ENCERRADA sem lançamento
+      // também virava 'f' — e era impossível distinguir uma da outra na tela.
+      // Agora:
+      //   'f'  futuro (cinza, sem borda)
+      //   'p'  encerrada, sem lançamento e SEM justificativa  -> BORDA VERMELHA
+      //   'pj' encerrada, sem lançamento e COM justificativa  -> sem borda
+      // Assim uma célula zerada sem borda vermelha = foi justificada.
+      // ATENÇÃO: x.frac vale 0 tanto para FAIXA FUTURA quanto para ENCERRADA
+      // (a fórmula é `now >= fim ? 1 : now <= ini ? 0 : ...`). Por isso a
+      // distinção é feita comparando o horário de FIM com o agora — só a
+      // encerrada é cobrada. Sem isso a faixa futura ganharia borda vermelha.
+      const fimF = toMin(F[k].fim);
+      const encerrada = isFinite(fimF) && now >= fimF;
+      const justificada = temJustificativa(x.c.id, k);
       let cls;
-      if (x.frac[k] === 0 && v === 0) cls = 'f';
+      if (!encerrada && v === 0) cls = 'f'; // futura (ou em curso sem produção)
+      else if (encerrada && v === 0) cls = justificada ? 'p j' : 'p';
       else if (x.frac[k] === 1 && v === 0 && x.metas[k] > 0) cls = 'm';
       else cls = v >= x.espF[k] * (1 - LIM) ? 'o' : 'l';
-      h += '<button type="button" class="' + cls + (k === i ? ' sel' : '') + '" data-mx="' + k + '" title="' + esc(x.c.nome + ' · meta ' + x.metas[k]) + '">' + (cls === 'f' ? '·' : fmt(v) + '<span class="muted" style="font-weight:400">/' + fmt(x.metas[k]) + '</span>') + '</button>';
+      const ehZeroFuturo = (cls === 'f');
+      h += '<button type="button" class="' + cls + (k === i ? ' sel' : '') + '" data-mx="' + k + '" title="' + esc(x.c.nome + ' · meta ' + x.metas[k] + (cls === 'p' ? ' · sem lançamento e sem justificativa' : (cls === 'p j' ? ' · justificada' : ''))) + '">' + (ehZeroFuturo ? '·' : fmt(v) + '<span class="muted" style="font-weight:400">/' + fmt(x.metas[k]) + '</span>') + '</button>';
     });
     h += '<span style="font-weight:700" class="c-' + x.st + '">' + fmt(x.tot) + ' / ' + fmt(x.metaDia) + (x.totFora + x.totExtra > 0 ? '<span class="muted" style="font-weight:400;font-size:.75em;display:block">+' + fmt(x.totFora + x.totExtra) + ' fora</span>' : '') + '</span>';
   });
@@ -1097,6 +1133,65 @@ function pcHist(x) {
     '<section class="panel"><div class="phead" style="margin-bottom:8px"><h2>Total por produto</h2><span class="muted">' + (semMeta > 0 ? fmt(semMeta) + ' pç sem meta (listadas abaixo, fora do realizado)' : 'programado × realizado no dia') + '</span></div>' +
     gt('1.7fr .75fr .75fr .8fr .65fr', 520, ['PRODUTO', 'JANELA', '>PROGRAMADO', '>REALIZADO', '>%'], pr, 'Sem produtos') + '</section>';
 }
+// ── LANÇAMENTOS DO DIA NO PC DA CÉLULA (25/11, pedido Dlean) ────────────────
+// Antes esta lista mostrava só os apontamentos desta célula: a faixa que foi
+// JUSTIFICADA não aparecia (ex.: Daniele justificou a 09-10 e a linha não
+// existia), então dava a impressão de que nada tinha sido feito.
+// Agora a justificativa da célula aparece na lista, na faixa dela, com motivo,
+// quem justificou e o botão de cancelar — igual à aba Apontamento.
+// Junto vai o BOTÃO DE JUSTIFICAR em cada faixa encerrada sem lançamento, para
+// não precisar sair do PC da célula.
+function regsDoPc(c, regs) {
+  const F = faixas();
+  // justificativas DESTA célula, por índice de faixa
+  const justPor = {};
+  try {
+    const todas = (window.FAIXA_JUST && typeof window.FAIXA_JUST.todas === 'function')
+      ? window.FAIXA_JUST.todas() : [];
+    for (let i = 0; i < todas.length; i++) {
+      const j = todas[i];
+      if (String(j.celula) !== String(c.id)) continue;
+      justPor[Number(j.faixa_idx)] = j;
+    }
+  } catch (e) {}
+
+  const linhas = regs.map((a) => regRow(a, true));
+  // justificativas que já existem (aparecem como linha, não como botão)
+  Object.keys(justPor).forEach((fx) => {
+    const j = justPor[fx];
+    linhas.push(
+      '<div class="reg" style="background:#fef3c7;border-left:3px solid #f59e0b">' +
+        '<span>🔒 ' + esc(F[fx] ? short(F[fx].ini) + '–' + short(F[fx].fim) : 'faixa ' + fx) + '</span>' +
+        '<span>' + esc(String(j.motivo || '')) +
+          (j.quem ? ' · <span class="muted">👤 ' + esc(String(j.quem)) + '</span>' : '') + '</span>' +
+        '<button type="button" class="btn" data-just-cancel="' + esc(String(j.id)) + '" ' +
+          'data-just-cel="' + esc(String(j.celula_nome || j.celula || '')) + '" ' +
+          'data-just-motivo="' + esc(String(j.motivo || '')) + '" ' +
+          'style="font-size:.78rem;padding:3px 9px">Cancelar</button>' +
+      '</div>'
+    );
+  });
+
+  // botão de justificar nas faixas ENCERRADAS, zeradas e ainda sem justificativa
+  const now = nowMin();
+  const x = calcCell(c, now);
+  for (let k = 0; k < F.length; k++) {
+    if (x.frac[k] !== 0) continue                 // futura ou em curso
+    if ((x.real[k] || 0) !== 0) continue          // tem lançamento
+    if (justPor[k]) continue                      // já justificada
+    linhas.push(
+      '<div class="reg" style="background:#fef2f2;border-left:3px solid var(--bad)">' +
+        '<span>⚠ ' + esc(short(F[k].ini) + '–' + short(F[k].fim)) + '</span>' +
+        '<span class="muted">sem lançamento</span>' +
+        '<button type="button" class="btn danger" data-pc-just="' + k + '" ' +
+          'style="font-size:.78rem;padding:4px 10px">Justificar</button>' +
+      '</div>'
+    );
+  }
+
+  return linhas.join('') || '<p class="muted">Nenhum lançamento hoje.</p>';
+}
+
 function pcSide() {
   const side = $('#pc-side'); if (!side) return;
   const c = cellsAtivas().find((k) => k.id === S.pcCel); if (!c) return;
@@ -1112,7 +1207,7 @@ function pcSide() {
       '<div class="tile"><span class="lbl">Vs. esperado</span><span class="num c-' + x.st + '" style="font-size:2.6rem">' + sgn(x.dProg) + '</span></div></div>' + foraProgTxt(x, '.82rem') +
       '<div class="muted" style="margin:10px 0 6px">' + (x.cur >= 0 ? 'Hora atual: <b class="c-' + (curReal >= curEsp * (1 - LIM) ? 'ok' : 'late') + '">' + fmt(curReal) + '</b> de ' + fmt(curEsp) + ' esperado (meta ' + fmt(x.metas[x.cur]) + ')' : esc(faseTxt(x))) + '</div>' +
       chart(x.metas, x.real, x.frac, x.cur, x.espF, { h: 130, valSize: 14 }) + '</section>' +
-    '<section class="panel"><h2 style="margin-bottom:6px">Lançamentos do dia</h2>' + (regs.map((a) => regRow(a, true)).join('') || '<p class="muted">Nenhum lançamento hoje.</p>') + '</section>' +
+    '<section class="panel"><h2 style="margin-bottom:6px">Lançamentos do dia</h2>' + regsDoPc(c, regs) + '</section>' +
     '<section class="panel"><div class="lbl" style="margin-bottom:8px">Parada da célula</div>' + par + '</section>' +
     '<section class="panel"><div class="lbl" style="margin-bottom:8px">Chamar ajuda</div>' + helpGrid(x) + '</section>';
   // histórico das horas e total por produto (04/11)
@@ -2127,6 +2222,18 @@ document.addEventListener('click', async (ev) => {
     return;
   }
   if (d.callClose) { try { await S.db.doc('dias/' + S.date + '/chamados/' + d.callClose).update({ status: 'resolvido', fimHora: clockTxt(), resolvidoEm: new Date().toISOString() }); } catch (e) { toast(errMsg(e)); } return; }
+  // JUSTIFICAR PELO PC DA CÉLULA (25/11): abre o modal de motivo do
+  // faixa-bloqueio.js, sem sair desta tela.
+  if (d.pcJust != null) {
+    try {
+      if (window.FAIXA_BLOQ && typeof window.FAIXA_BLOQ.justificar === 'function') {
+        window.FAIXA_BLOQ.justificar(S.pcCel, Number(d.pcJust));
+      } else {
+        toast('Justificativa indisponível agora — recarregue a página.');
+      }
+    } catch (eJ) { toast('Não foi possível abrir a justificativa.'); }
+    return;
+  }
   if (d.cancel) {
     if (t.dataset.armed !== '1') { t.dataset.armed = '1'; t.textContent = 'Confirmar'; setTimeout(() => { if (t.isConnected) { t.dataset.armed = ''; t.textContent = 'Cancelar'; } }, 4000); return; }
     return cancelApont(d.cancel);
@@ -2433,7 +2540,7 @@ document.addEventListener('change', async (ev) => {
   //      UMA vez por sessão — se voltar igual, para de tentar e avisa;
   //   2) a comparação ignora espaços/quebras e usa o maior valor "data-hora",
   //      então um version.txt mais novo nunca fica em loop.
-  const VERSAO = '20261125l'; // DEVE casar com version.txt a cada publicação
+  const VERSAO = '20261125m'; // DEVE casar com version.txt a cada publicação
   const ARQ = 'version.txt';
   const INTERVALO = 120000; // 2 min
   let avisando = false;
