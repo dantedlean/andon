@@ -104,8 +104,10 @@
           }
         }
       }
-      // 3) dispara a busca e usa na próxima chamada
-      if (!nomeReal && _meuPerfil === null) buscarPerfil()
+      // NÃO chamar buscarPerfil() aqui: buscarPerfil já chama eu(),
+      // e isso virava recursão infinita engolida pelo catch — a busca nunca
+      // acontecia e o nome/papel ficavam vazios. Quem dispara é papelDoUsuario
+      // e o buscar() do ciclo.
     } catch (e) {}
     _eu = {
       id: String((s.user && s.user.id) || ''),
@@ -195,7 +197,8 @@
 
     // 1) o que o app já carregou (rápido, quando disponível)
     try {
-      var me0 = eu()
+      var s0 = lerSessao()
+      var me0 = { id: String((s0 && s0.user && s0.user.id) || '') }
       var pm0 = (window.S && window.S.perfisMap) || null
       if (pm0 && me0 && me0.id && pm0[me0.id] && (pm0[me0.id].nome || pm0[me0.id].papel)) {
         _meuPerfil = { nome: String(pm0[me0.id].nome || ''), papel: String(pm0[me0.id].papel || '') }
@@ -212,7 +215,11 @@
     // 2) busca no banco
     if (_perfilBuscando) { if (cb) cb(_meuPerfil || { nome: '', papel: '' }); return }
     _perfilBuscando = true
-    var me = eu()
+    var s1 = lerSessao()
+    var me = {
+      id: String((s1 && s1.user && s1.user.id) || ''),
+      token: String((s1 && s1.access_token) || ''),
+    }
     if (!me.id || !me.token) {
       _perfilBuscando = false
       if (cb) cb({ nome: '', papel: '' })
