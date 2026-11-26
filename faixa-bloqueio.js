@@ -878,7 +878,27 @@
                 }
               } catch (eB2) {}
             }
-            var un = celAberta2 ? unidadeDaCelula(celAberta2) : 'C'
+
+            // ── SEM UMA CÉLULA IDENTIFICADA, NÃO BLOQUEIA AQUI (26/11) ─────
+            // Este interceptador existe para o PC DA CÉLULA, onde há UMA
+            // célula e um botão (#pc-send). Na TABELA UNIFICADA o botão é
+            // "Lançar faixa 13-14" (#tu-send) e o clique carrega VÁRIAS
+            // células de uma vez — não existe "a célula" do clique.
+            //
+            // Era aqui que a Montagem Curitiba era travada: sem `S.pcCel` e
+            // com `#apontamento` no endereço (o regex `apontar-<id>` não casa
+            // com "apontamento"), `celAberta2` ficava vazio, a unidade caía no
+            // padrão 'C' e o clique inteiro era recusado por pendência de
+            // SOLDA CARRINHOS / Trilho / Corte haste — a mensagem do print.
+            //
+            // O app JÁ faz o certo nesse caminho: `tuLancar` percorre os itens
+            // e consulta `bloqueada(it.cel, ini)` CÉLULA A CÉLULA, grava as
+            // liberadas e só avisa quantas ficaram de fora. Deixamos ele agir.
+            // Mesma filosofia do resto do arquivo: se não dá para decidir,
+            // não bloqueia.
+            if (!celAberta2) return
+
+            var un = unidadeDaCelula(celAberta2)
 
             // PERMISSÃO: a mesma célula resolvida acima.
             // Antes vinha só do endereço; em `#apontamento` ficava vazia e a
