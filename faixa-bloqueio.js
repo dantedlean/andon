@@ -696,23 +696,39 @@
         }
       }
 
-      // unidade: vem da CÉLULA aberta (não do endereço). Ver unidadeDaCelula.
-      var un = 'C'
+      // ── A CÉLULA VEM DO ESTADO DO APP, NÃO DO ENDEREÇO (26/11) ─────────────
+      // DEFEITO QUE ISTO CORRIGE: a trava lia a célula de `location.hash` com
+      // /apontar-<id>/. Na tela do PC da célula o endereço é `#apontamento`
+      // (sem id): o regex não casava, `un` caía no padrão 'C' e o operador de
+      // MONTAGEM CURITIBA (CF8ZX4, unidade M) era julgado como "outras
+      // células" — ficando bloqueado pelas pendências de Corte/Trilho/Solda.
+      // É exatamente o que o Dlean decidiu em 25/11 que NÃO pode acontecer:
+      // Montagem Curitiba não pode ser travada por pendência de outra célula.
+      // O app já sabe a célula: é `S.pcCel`, a mesma que o lançamento usa.
+      // O hash fica só como fallback, quando ele realmente traz o id.
+      var celAberta = ''
       try {
-        var h = String(location.hash || '')
-        var mm = /apontar-([A-Za-z0-9]+)/.exec(h)
-        if (mm) un = unidadeDaCelula(mm[1])
-      } catch (e0) {}
+        if (window.S && window.S.pcCel) celAberta = String(window.S.pcCel)
+      } catch (e1) {}
+      if (!celAberta) {
+        try {
+          var hx = String(location.hash || '')
+          var mx = /apontar-([A-Za-z0-9]+)/.exec(hx)
+          if (mx) celAberta = mx[1]
+        } catch (e9) {}
+      }
+      if (!celAberta) {
+        try {
+          if (btn && btn.getAttribute && btn.getAttribute('data-cel')) {
+            celAberta = String(btn.getAttribute('data-cel'))
+          }
+        } catch (e2) {}
+      }
+      var un = celAberta ? unidadeDaCelula(celAberta) : 'C'
 
       if (!iniFaixa) return // não conseguimos ler: não bloqueia
 
       // PERMISSÃO POR UNIDADE (25/11): quem não pode agir na unidade não lança
-      var celAberta = ''
-      try {
-        var hx = String(location.hash || '')
-        var mx = /apontar-([A-Za-z0-9]+)/.exec(hx)
-        if (mx) celAberta = mx[1]
-      } catch (e9) {}
       var semPermissao = celAberta && !podeAgirNaCelula(celAberta)
 
       var b = faixaBloqueada(un, iniFaixa)
