@@ -845,20 +845,45 @@
             }
             if (!ini) return
 
-            // unidade pela CÉLULA aberta (não pelo endereço)
-            var un = 'C'
+            // ── A CÉLULA VEM DO ESTADO DO APP, NÃO DO ENDEREÇO (26/11) ────
+            // ESTE é o caminho que o operador dispara: o handler de CAPTURA do
+            // clique (roda antes do app) é quem bloqueia e quem mostra
+            // "Bloqueado pela faixa 07:30. Falta: SOLDA CARRINHOS, Trilho...".
+            //
+            // O commit 36f2585e corrigiu apenas `aplicarTrava` (o botão
+            // desabilitado) e deixou AQUI a leitura de `location.hash`. Na tela
+            // do PC da célula o endereço é `#apontamento` — sem id — então o
+            // regex não casava, `un` caía em 'C' e a MONTAGEM CURITIBA (CF8ZX4,
+            // grupo 'M') era julgada como "outras células", sendo travada por
+            // Corte, Trilho e Solda. Exatamente o que o Dlean decidiu em 25/11
+            // que não pode acontecer.
+            //
+            // O app já sabe a célula aberta: é `S.pcCel`, a mesma que o
+            // lançamento usa. O hash fica só como fallback, quando traz id.
+            var celAberta2 = ''
             try {
-              var hh2 = String(location.hash || '')
-              var mm2 = /apontar-([A-Za-z0-9]+)/.exec(hh2)
-              if (mm2) un = unidadeDaCelula(mm2[1])
-            } catch (e0) {}
+              if (window.S && window.S.pcCel) celAberta2 = String(window.S.pcCel)
+            } catch (eS2) {}
+            if (!celAberta2) {
+              try {
+                var hh2 = String(location.hash || '')
+                var mm2 = /apontar-([A-Za-z0-9]+)/.exec(hh2)
+                if (mm2) celAberta2 = mm2[1]
+              } catch (e0) {}
+            }
+            if (!celAberta2) {
+              try {
+                if (btn && btn.getAttribute && btn.getAttribute('data-cel')) {
+                  celAberta2 = String(btn.getAttribute('data-cel'))
+                }
+              } catch (eB2) {}
+            }
+            var un = celAberta2 ? unidadeDaCelula(celAberta2) : 'C'
 
-            // PERMISSÃO: descobre a célula do lançamento (PC usa a célula aberta)
-            var celLanc = ''
-            try {
-              var mh = /apontar-([A-Za-z0-9]+)/.exec(String(location.hash || ''))
-              if (mh) celLanc = mh[1]
-            } catch (eP) {}
+            // PERMISSÃO: a mesma célula resolvida acima.
+            // Antes vinha só do endereço; em `#apontamento` ficava vazia e a
+            // checagem de permissão nunca rodava no PC da célula.
+            var celLanc = celAberta2
             if (celLanc && !podeAgirNaCelula(celLanc)) {
               ev.preventDefault()
               ev.stopPropagation()
